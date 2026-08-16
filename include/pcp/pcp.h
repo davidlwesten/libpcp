@@ -7,6 +7,7 @@
 #include "option.h"
 #include "protocol.h"
 #include "result.h"
+#include "socket.h"
 
 #define CALL(POINTER, MEMBER, ...)                                             \
   ((POINTER)->MEMBER((POINTER)__VA_OPT__(, ) __VA_ARGS__))
@@ -31,21 +32,23 @@ typedef struct pcp_mapping_or_error {
 typedef struct pcp_client {
   socket_address_t local;
   socket_address_t remote;
-  pcp_mapping_or_error_t (*map)(const struct pcp_client *,
-                                pcp_protocol_t protocol,
-                                port_t internal,
-                                socket_address_t external,
-                                time_t ttl,
-                                size_t option_count,
-                                const pcp_option_t[option_count]);
-  pcp_mapping_or_error_t (*peer)(const struct pcp_client *,
-                                 pcp_protocol_t protocol,
-                                 port_t internal,
-                                 socket_address_t external,
-                                 socket_address_t peer,
-                                 time_t ttl,
-                                 size_t option_count,
-                                 const pcp_option_t[option_count]);
+  void (*map)(const struct pcp_client *,
+              pcp_protocol_t protocol,
+              port_t internal,
+              socket_address_t external,
+              time_t ttl,
+              size_t option_count,
+              const pcp_option_t[option_count],
+              void (*result)(pcp_mapping_or_error_t mapping));
+  void (*peer)(const struct pcp_client *,
+               pcp_protocol_t protocol,
+               port_t internal,
+               socket_address_t external,
+               socket_address_t peer,
+               time_t ttl,
+               size_t option_count,
+               const pcp_option_t[option_count],
+               void (*result)(pcp_mapping_or_error_t mapping));
 } pcp_client_t;
 
 pcp_client_t *pcp_client_create(const char *server);

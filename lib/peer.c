@@ -98,7 +98,7 @@ pcp_peer_response_create(const pcp_datagram_t *src) {
                          .port = pcp_datagram_body_read_uint16_t(src, 36)}}};
 }
 
-static pcp_mapping_or_error_t
+static void
 pcp_client_internal_peer(const pcp_client_internal_t *client,
                          pcp_protocol_t protocol,
                          port_t internal_port,
@@ -106,7 +106,8 @@ pcp_client_internal_peer(const pcp_client_internal_t *client,
                          socket_address_t peer,
                          time_t ttl,
                          size_t options_count,
-                         const pcp_option_t[options_count]) {
+                         const pcp_option_t[options_count],
+                         void (*callback)(pcp_mapping_or_error_t result)) {
   auto const request = pcp_peer_request_create(
       protocol,
       (socket_address_t){.ip = client->socket.local.ip, .port = internal_port},
@@ -118,7 +119,8 @@ pcp_client_internal_peer(const pcp_client_internal_t *client,
   constexpr size_t REQUEST_SIZE = PCP_HEADER_SIZE + PCP_PEER_REQUEST_BODY_SIZE;
   auto const sent = CALL(&client->socket, send, REQUEST_SIZE, datagram.data);
   if (!sent.has_value) {
-    return (pcp_mapping_or_error_t){.code = SYSTEM, .error = sent.error};
+    callback((pcp_mapping_or_error_t){.code = SYSTEM, .error = sent.error});
+    return;
   }
   assert(sent.value == REQUEST_SIZE);
 
@@ -126,33 +128,35 @@ pcp_client_internal_peer(const pcp_client_internal_t *client,
   auto const recvd =
       CALL(&client->socket, recv, sizeof(datagram.data), datagram.data);
   if (!recvd.has_value) {
-    return (pcp_mapping_or_error_t){.code = SYSTEM, .error = recvd.error};
+    callback((pcp_mapping_or_error_t){.code = SYSTEM, .error = recvd.error});
+    return;
   }
 
   auto const response = pcp_peer_response_create(&datagram);
   if (!response.has_value) {
-    return (pcp_mapping_or_error_t){.code = response.error, .value = {0}};
+    callback((pcp_mapping_or_error_t){.code = response.error, .value = {0}});
+    return;
   }
 
-  return (pcp_mapping_or_error_t){
+  callback((pcp_mapping_or_error_t){
       .code = response.value.code,
       .value = {.protocol = response.value.protocol,
                 .internal = {.ip = client->socket.local.ip,
                              .port = response.value.internal},
                 .external = response.value.external,
-                .ttl = response.value.ttl}};
+                .ttl = response.value.ttl}});
 }
 
-pcp_mapping_or_error_t
-pcp_client_peer(const pcp_client_t *client,
-                pcp_protocol_t protocol,
-                port_t internal_port,
-                socket_address_t external,
-                socket_address_t peer,
-                time_t ttl,
-                size_t options_count,
-                const pcp_option_t options[options_count]) {
-  return pcp_client_internal_peer((const pcp_client_internal_t *)client,
-                                  protocol, internal_port, external, peer, ttl,
-                                  options_count, options);
+void pcp_client_peer(const pcp_client_t *client,
+                     pcp_protocol_t protocol,
+                     port_t internal_port,
+                     socket_address_t external,
+                     socket_address_t peer,
+                     time_t ttl,
+                     size_t options_count,
+                     const pcp_option_t options[options_count],
+                     void (*callback)(pcp_mapping_or_error_t result)) {
+  pcp_client_internal_peer((const pcp_client_internal_t *)client, protocol,
+                           internal_port, external, peer, ttl, options_count,
+                           options, callback);
 }
