@@ -2,7 +2,7 @@
 
 #include <pcp/pcp.h>
 
-#include "socket.h"
+#include "transport.h"
 
 typedef enum pcp_opcode {
   ANNOUNCE = 0,
@@ -16,9 +16,20 @@ typedef struct pcp_nonce {
 
 pcp_nonce_t pcp_nonce_create();
 
+typedef struct pcp_mappings {
+  size_t capacity;
+  size_t size;
+  pcp_mapping_t *data;
+} pcp_mappings_t;
+
+typedef struct pcp_server {
+  pcp_mappings_t active;
+} pcp_server_t;
+
 typedef struct pcp_client_internal {
   pcp_client_t base;
-  socket_t socket;
+  pcp_server_t server;
+  transport_t transport;
 } pcp_client_internal_t;
 
 bool pcp_result_is_valid(pcp_result_t code);

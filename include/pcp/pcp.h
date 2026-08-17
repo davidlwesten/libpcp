@@ -7,7 +7,6 @@
 #include "option.h"
 #include "protocol.h"
 #include "result.h"
-#include "socket.h"
 
 #define CALL(POINTER, MEMBER, ...)                                             \
   ((POINTER)->MEMBER((POINTER)__VA_OPT__(, ) __VA_ARGS__))

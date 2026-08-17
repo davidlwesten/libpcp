@@ -12,6 +12,14 @@ static void socket_address_print(const char *prefix,
   }
 }
 
+static void mapping_callback(pcp_mapping_or_error_t result) {
+  if (result.code == SUCCESS) {
+    socket_address_print("mapped address is", &result.value.external);
+  } else {
+    fprintf(stderr, "mapping failed: %s\n", pcp_strerror(result.code));
+  }
+}
+
 int main() {
   pcp_client_t *client = pcp_client_create("127.0.0.1");
   if (!client) {
@@ -28,14 +36,8 @@ int main() {
   const socket_address_t peer = {.ip = ip_address_from_octets(192, 168, 8, 2),
                                  .port = 12000};
 
-  auto const mapped =
-      CALL(client, peer, UDP, internal, external, peer, 3600, 0, nullptr);
-  if (mapped.code == SUCCESS) {
-    socket_address_print("mapped address is", &mapped.value.external);
-  } else {
-    fprintf(stderr, "mapping failed: %s\n", pcp_strerror(mapped.code));
-  }
-
+  CALL(client, peer, UDP, internal, external, peer, 3600, 0, nullptr,
+       mapping_callback);
   pcp_client_destroy(client);
 
   return 0;

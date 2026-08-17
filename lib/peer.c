@@ -63,7 +63,7 @@ typedef struct pcp_peer_response_or_error {
   };
 } pcp_peer_response_or_error_t;
 
-static pcp_peer_response_or_error_t
+/*static pcp_peer_response_or_error_t
 pcp_peer_response_create(const pcp_datagram_t *src) {
   pcp_opcode_t opcode = {0};
   pcp_result_t code = {0};
@@ -96,55 +96,29 @@ pcp_peer_response_create(const pcp_datagram_t *src) {
                              .port = pcp_datagram_body_read_uint16_t(src, 18)},
                 .peer = {.ip = pcp_datagram_body_read_ip_address(src, 40),
                          .port = pcp_datagram_body_read_uint16_t(src, 36)}}};
-}
+}*/
 
-static void
-pcp_client_internal_peer(const pcp_client_internal_t *client,
-                         pcp_protocol_t protocol,
-                         port_t internal_port,
-                         socket_address_t external,
-                         socket_address_t peer,
-                         time_t ttl,
-                         size_t options_count,
-                         const pcp_option_t[options_count],
-                         void (*callback)(pcp_mapping_or_error_t result)) {
+static void pcp_client_internal_peer(const pcp_client_internal_t *client,
+                                     pcp_protocol_t protocol,
+                                     port_t internal_port,
+                                     socket_address_t external,
+                                     socket_address_t peer,
+                                     time_t ttl,
+                                     size_t options_count,
+                                     const pcp_option_t[options_count],
+                                     void (*)(pcp_mapping_or_error_t result)) {
   auto const request = pcp_peer_request_create(
       protocol,
-      (socket_address_t){.ip = client->socket.local.ip, .port = internal_port},
+      (socket_address_t){.ip = client->transport.local.ip,
+                         .port = internal_port},
       external, peer, ttl);
 
   pcp_datagram_t datagram = {0};
   pcp_peer_request_to_datagram(&datagram, &request);
 
   constexpr size_t REQUEST_SIZE = PCP_HEADER_SIZE + PCP_PEER_REQUEST_BODY_SIZE;
-  auto const sent = CALL(&client->socket, send, REQUEST_SIZE, datagram.data);
-  if (!sent.has_value) {
-    callback((pcp_mapping_or_error_t){.code = SYSTEM, .error = sent.error});
-    return;
-  }
-  assert(sent.value == REQUEST_SIZE);
-
-  datagram = (pcp_datagram_t){0};
-  auto const recvd =
-      CALL(&client->socket, recv, sizeof(datagram.data), datagram.data);
-  if (!recvd.has_value) {
-    callback((pcp_mapping_or_error_t){.code = SYSTEM, .error = recvd.error});
-    return;
-  }
-
-  auto const response = pcp_peer_response_create(&datagram);
-  if (!response.has_value) {
-    callback((pcp_mapping_or_error_t){.code = response.error, .value = {0}});
-    return;
-  }
-
-  callback((pcp_mapping_or_error_t){
-      .code = response.value.code,
-      .value = {.protocol = response.value.protocol,
-                .internal = {.ip = client->socket.local.ip,
-                             .port = response.value.internal},
-                .external = response.value.external,
-                .ttl = response.value.ttl}});
+  CALL(&client->transport, send, REQUEST_SIZE, datagram.data, nullptr);
+  CALL(&client->transport, run);
 }
 
 void pcp_client_peer(const pcp_client_t *client,

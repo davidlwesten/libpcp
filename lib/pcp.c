@@ -3,6 +3,7 @@
 #include "internal.h"
 #include "map.h"
 #include "peer.h"
+#include "transport.h"
 
 #include <assert.h>
 #include <malloc.h>
@@ -45,30 +46,39 @@ bool pcp_protocol_is_valid(pcp_protocol_t protocol) {
   return true;
 }
 
+static void pcp_server_recv(transport_t const *self,
+                            pcp_server_t * /*ctx*/,
+                            size_t size,
+                            const uint8_t /*data*/[size]) {
+  CALL(self, close);
+}
+
 pcp_client_t *pcp_client_create(const char *pcp_server) {
-  auto client = malloc(sizeof(pcp_client_internal_t));
+  auto client = (pcp_client_internal_t *)malloc(sizeof(pcp_client_internal_t));
   if (!client) {
     return nullptr;
   }
 
-  auto const socket_or_error = socket_connect(pcp_server, "pcp");
-  if (!socket_or_error.has_value) {
+  auto const transport = transport_connect(
+      pcp_server, (on_data_t){.callback = (on_data_callback_t)pcp_server_recv,
+                              .ctx = &client->server});
+  if (!transport.has_value) {
     free(client);
     return nullptr;
   }
 
   *(pcp_client_internal_t *)client =
-      (pcp_client_internal_t){.base = {.local = socket_or_error.value.local,
-                                       .remote = socket_or_error.value.remote,
+      (pcp_client_internal_t){.base = {.local = transport.value.local,
+                                       .remote = transport.value.remote,
                                        .map = pcp_client_map,
                                        .peer = pcp_client_peer},
-                              .socket = socket_or_error.value};
+                              .transport = transport.value};
 
-  return client;
+  return (pcp_client_t *)client;
 }
 
 void pcp_client_destroy(pcp_client_t *client) {
   pcp_client_internal_t *internal = (pcp_client_internal_t *)client;
-  CALL(&internal->socket, close);
+  CALL(&internal->transport, close);
   free(internal);
 }

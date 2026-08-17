@@ -15,7 +15,8 @@ target_sources(pcp
     pcp.c
     peer.c
     result.c
-    socket.c)
+    socket.c
+    transport_socket.c)
 
 # Public headers
 target_sources(pcp
@@ -40,6 +41,7 @@ target_sources(pcp
         ${CMAKE_CURRENT_SOURCE_DIR}/internal.h
         ${CMAKE_CURRENT_SOURCE_DIR}/map.h
         ${CMAKE_CURRENT_SOURCE_DIR}/peer.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/socket.h)
+        ${CMAKE_CURRENT_SOURCE_DIR}/socket.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/transport.h)
 
 target_link_libraries(pcp PRIVATE project_warnings)
