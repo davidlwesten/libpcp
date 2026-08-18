@@ -16,16 +16,6 @@ typedef struct pcp_map_request {
   time_t ttl;
 } pcp_map_request_t;
 
-typedef struct pcp_map_response {
-  pcp_result_t code;
-  time_t ttl;
-  time_t epoch;
-  pcp_nonce_t nonce;
-  pcp_protocol_t protocol;
-  port_t internal;
-  socket_address_t external;
-} pcp_map_response_t;
-
 static pcp_map_request_t pcp_map_request_create(pcp_protocol_t protocol,
                                                 socket_address_t internal,
                                                 socket_address_t external,
@@ -38,63 +28,28 @@ static pcp_map_request_t pcp_map_request_create(pcp_protocol_t protocol,
                              .ttl = ttl};
 }
 
-static void pcp_map_request_to_datagram(pcp_datagram_t *dst,
+static void pcp_map_request_to_datagram(view_t dst,
                                         const pcp_map_request_t *src) {
   pcp_datagram_write_request_header(dst, MAP, src->ttl, src->internal.ip);
-  pcp_datagram_body_write_bytes(dst, 0, sizeof(src->nonce.data),
-                                src->nonce.data);
+  pcp_datagram_body_write_bytes(
+      dst, 0, (const_view_t){sizeof(src->nonce.data), src->nonce.data});
   pcp_datagram_body_write_uint8_t(dst, 12, (uint8_t)src->protocol);
   pcp_datagram_body_write_uint16_t(dst, 16, src->internal.port);
   pcp_datagram_body_write_uint16_t(dst, 18, src->external.port);
   pcp_datagram_body_write_ip_address(dst, 20, src->external.ip);
 }
 
-typedef struct pcp_map_response_or_error {
-  bool has_value;
-  union {
-    pcp_map_response_t value;
-    pcp_result_t error;
-  };
-} pcp_map_response_or_error_t;
-
-/*static pcp_map_response_or_error_t
-pcp_map_response_create(const pcp_datagram_t *src) {
-  pcp_opcode_t opcode = {0};
-  pcp_result_t code = {0};
-  time_t ttl = {0};
-  time_t epoch = {0};
-  pcp_datagram_read_response_header(&opcode, &code, &ttl, &epoch, src);
-  if (opcode != MAP) {
-    return (pcp_map_response_or_error_t){.has_value = false,
-                                         .error = UNSUPP_OPCODE};
-  }
-
-  if (!pcp_result_is_valid(code)) {
-    return (pcp_map_response_or_error_t){.has_value = false,
-                                         .error = MALFORMED_REQUEST};
-  }
-
+pcp_map_response_t pcp_datagram_body_read_map_response(const_view_t datagram) {
   pcp_nonce_t nonce = {0};
-  pcp_datagram_body_read_bytes(sizeof(nonce.data), nonce.data, src, 0);
-
-  const pcp_protocol_t protocol = pcp_datagram_body_read_uint8_t(src, 12);
-  if (!pcp_protocol_is_valid(protocol)) {
-    return (pcp_map_response_or_error_t){.has_value = false,
-                                         .error = UNSUPP_PROTOCOL};
-  }
-
-  return (pcp_map_response_or_error_t){
-      .has_value = true,
-      .value = {
-          .code = code,
-          .ttl = ttl,
-          .epoch = epoch,
-          .nonce = nonce,
-          .protocol = protocol,
-          .internal = pcp_datagram_body_read_uint16_t(src, 16),
-          .external = {.ip = pcp_datagram_body_read_ip_address(src, 20),
-                       .port = pcp_datagram_body_read_uint16_t(src, 18)}}};
-}*/
+  pcp_datagram_body_read_bytes((view_t){sizeof(nonce.data), nonce.data},
+                               datagram, 0);
+  return (pcp_map_response_t){
+      .nonce = nonce,
+      .protocol = pcp_datagram_body_read_uint8_t(datagram, 12),
+      .internal = pcp_datagram_body_read_uint16_t(datagram, 16),
+      .external = {.ip = pcp_datagram_body_read_ip_address(datagram, 20),
+                   .port = pcp_datagram_body_read_uint16_t(datagram, 18)}};
+}
 
 static void pcp_client_internal_map(const pcp_client_internal_t *client,
                                     pcp_protocol_t protocol,
@@ -114,7 +69,8 @@ static void pcp_client_internal_map(const pcp_client_internal_t *client,
                              external, ttl);
 
   pcp_datagram_t datagram = {0};
-  pcp_map_request_to_datagram(&datagram, &request);
+  pcp_map_request_to_datagram(
+      (view_t){.size = sizeof(datagram.data), .data = datagram.data}, &request);
 
   constexpr size_t REQUEST_SIZE = PCP_HEADER_SIZE + PCP_MAP_REQUEST_BODY_SIZE;
   CALL(&client->transport, send, REQUEST_SIZE, datagram.data, nullptr);

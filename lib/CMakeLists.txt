@@ -42,6 +42,7 @@ target_sources(pcp
         ${CMAKE_CURRENT_SOURCE_DIR}/map.h
         ${CMAKE_CURRENT_SOURCE_DIR}/peer.h
         ${CMAKE_CURRENT_SOURCE_DIR}/socket.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/transport.h)
+        ${CMAKE_CURRENT_SOURCE_DIR}/transport.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/types.h)
 
 target_link_libraries(pcp PRIVATE project_warnings)

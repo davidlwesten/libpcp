@@ -1,5 +1,6 @@
 #pragma once
 
+#include "datagram.h"
 #include "socket.h"
 
 typedef struct transport {
@@ -14,14 +15,13 @@ typedef struct transport {
   void *ctx;
 } transport_t;
 
-typedef void (*on_data_callback_t)(transport_t const *transport,
-                                   void *ctx,
-                                   size_t size,
-                                   const uint8_t data[size]);
-typedef struct on_data {
-  on_data_callback_t callback;
+typedef void (*on_transport_data_callback_t)(transport_t const *transport,
+                                             void *ctx,
+                                             const_view_t datagram);
+typedef struct on_transport_data {
+  on_transport_data_callback_t callback;
   void *ctx;
-} on_data_t;
+} on_transport_data_t;
 
 typedef struct transport_or_error {
   bool has_value;
@@ -31,4 +31,5 @@ typedef struct transport_or_error {
   };
 } transport_or_error_t;
 
-transport_or_error_t transport_connect(const char *server, on_data_t callback);
+transport_or_error_t transport_connect(const char *server,
+                                       on_transport_data_t callback);

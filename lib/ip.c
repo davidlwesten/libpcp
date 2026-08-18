@@ -121,6 +121,10 @@ size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src) {
   return result.has_value ? result.value : 0;
 }
 
+int ip_adddress_cmp(ip_address_t const *lhs, ip_address_t const *rhs) {
+  return memcmp(lhs, rhs, sizeof(ip_address_t));
+}
+
 socket_address_t
 socket_address_from_sockaddr_in(const struct sockaddr_in *addr) {
   return (socket_address_t){.ip = ip_address_from_in_addr(&addr->sin_addr),
@@ -286,4 +290,9 @@ size_t socket_address_ntop(size_t size,
                           : socket_address_ntop_v6(size, dst, address);
 
   return result.has_value ? result.value : 0;
+}
+
+int socket_address_cmp(socket_address_t const *lhs,
+                       socket_address_t const *rhs) {
+  return memcmp(lhs, rhs, sizeof(socket_address_t));
 }

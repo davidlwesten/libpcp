@@ -19,6 +19,8 @@ static constexpr ip_address_t ip_address_any_v4 = {
 static constexpr ip_address_t ip_address_loopback_v4 = {
     .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 1, 0, 0, 127}};
 static constexpr ip_address_t ip_address_any_v6 = {.addr = {0}};
+static constexpr ip_address_t ip_address_loopback_v6 = {
+    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1}};
 
 ip_address_t ip_address_from_octets(uint8_t a, uint8_t b, uint8_t c, uint8_t d);
 ip_address_t ip_address_from_in_addr(const struct in_addr *addr);
@@ -31,6 +33,8 @@ typedef struct optional_ip_address {
 
 optional_ip_address_t ip_address_from_string(const char *ip);
 size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src);
+
+int ip_address_cmp(ip_address_t const *lhs, ip_address_t const *rhs);
 
 typedef uint16_t port_t;
 
@@ -52,3 +56,6 @@ typedef struct optional_socket_address {
 optional_socket_address_t socket_address_from_string(const char *address);
 size_t
 socket_address_ntop(size_t size, char dst[size], const socket_address_t *src);
+
+int socket_address_cmp(socket_address_t const *lhs,
+                       socket_address_t const *rhs);

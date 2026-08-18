@@ -1,7 +1,7 @@
 #include "option.h"
 #include "datagram.h"
 
-void pcp_datagram_body_write_third_party(pcp_datagram_t *dst,
+void pcp_datagram_body_write_third_party(view_t dst,
                                          size_t offset,
                                          const pcp_option_third_party_t *src) {
   pcp_datagram_body_write_uint8_t(dst, offset, THIRD_PARTY);
@@ -10,13 +10,13 @@ void pcp_datagram_body_write_third_party(pcp_datagram_t *dst,
 }
 
 void pcp_datagram_body_write_prefer_failure(
-    pcp_datagram_t *dst,
+    view_t dst,
     size_t offset,
     const pcp_option_prefer_failure_t * /*src*/) {
   pcp_datagram_body_write_uint8_t(dst, offset, PREFER_FAILURE);
 }
 
-void pcp_datagram_body_write_filter(pcp_datagram_t *dst,
+void pcp_datagram_body_write_filter(view_t dst,
                                     size_t offset,
                                     const pcp_option_filter_t *src) {
   pcp_datagram_body_write_uint8_t(dst, offset, FILTER);

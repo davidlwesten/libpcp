@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 
-static void socket_address_print(const char *prefix,
+static void socket_address_print(char const *prefix,
                                  const socket_address_t *addr) {
   char string[1024];
   if (socket_address_ntop(sizeof(string), string, addr)) {

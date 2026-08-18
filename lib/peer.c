@@ -18,17 +18,6 @@ typedef struct pcp_peer_request {
   time_t ttl;
 } pcp_peer_request_t;
 
-typedef struct pcp_peer_response {
-  pcp_result_t code;
-  time_t ttl;
-  time_t epoch;
-  pcp_nonce_t nonce;
-  pcp_protocol_t protocol;
-  port_t internal;
-  socket_address_t external;
-  socket_address_t peer;
-} pcp_peer_response_t;
-
 static pcp_peer_request_t pcp_peer_request_create(pcp_protocol_t protocol,
                                                   socket_address_t internal,
                                                   socket_address_t external,
@@ -44,59 +33,45 @@ static pcp_peer_request_t pcp_peer_request_create(pcp_protocol_t protocol,
 
 static void pcp_peer_request_to_datagram(pcp_datagram_t *dst,
                                          const pcp_peer_request_t *src) {
-  pcp_datagram_write_request_header(dst, PEER, src->ttl, src->internal.ip);
-  pcp_datagram_body_write_bytes(dst, 0, sizeof(src->nonce.data),
-                                src->nonce.data);
-  pcp_datagram_body_write_uint8_t(dst, 12, (uint8_t)src->protocol);
-  pcp_datagram_body_write_uint16_t(dst, 16, src->internal.port);
-  pcp_datagram_body_write_uint16_t(dst, 18, src->external.port);
-  pcp_datagram_body_write_ip_address(dst, 20, src->external.ip);
-  pcp_datagram_body_write_uint16_t(dst, 36, src->peer.port);
-  pcp_datagram_body_write_ip_address(dst, 40, src->peer.ip);
+  pcp_datagram_write_request_header(
+      (view_t){.size = sizeof(dst->data), .data = dst->data}, PEER, src->ttl,
+      src->internal.ip);
+  pcp_datagram_body_write_bytes(
+      (view_t){sizeof(dst->data), dst->data}, 0,
+      (const_view_t){sizeof(src->nonce.data), src->nonce.data});
+  pcp_datagram_body_write_uint8_t(
+      (view_t){.size = sizeof(dst->data), .data = dst->data}, 12,
+      (uint8_t)src->protocol);
+  pcp_datagram_body_write_uint16_t(
+      (view_t){.size = sizeof(dst->data), .data = dst->data}, 16,
+      src->internal.port);
+  pcp_datagram_body_write_uint16_t(
+      (view_t){.size = sizeof(dst->data), .data = dst->data}, 18,
+      src->external.port);
+  pcp_datagram_body_write_ip_address(
+      (view_t){.size = sizeof(dst->data), .data = dst->data}, 20,
+      src->external.ip);
+  pcp_datagram_body_write_uint16_t(
+      (view_t){.size = sizeof(dst->data), .data = dst->data}, 36,
+      src->peer.port);
+  pcp_datagram_body_write_ip_address(
+      (view_t){.size = sizeof(dst->data), .data = dst->data}, 40, src->peer.ip);
 }
 
-typedef struct pcp_peer_response_or_error {
-  bool has_value;
-  union {
-    pcp_peer_response_t value;
-    pcp_result_t error;
-  };
-} pcp_peer_response_or_error_t;
-
-/*static pcp_peer_response_or_error_t
-pcp_peer_response_create(const pcp_datagram_t *src) {
-  pcp_opcode_t opcode = {0};
-  pcp_result_t code = {0};
-  time_t ttl = {0};
-  time_t epoch = {0};
-  pcp_datagram_read_response_header(&opcode, &code, &ttl, &epoch, src);
-  if (opcode != PEER) {
-    return (pcp_peer_response_or_error_t){.has_value = false,
-                                          .error = UNSUPP_OPCODE};
-  }
-
+pcp_peer_response_t
+pcp_datagram_body_read_peer_response(const_view_t datagram) {
   pcp_nonce_t nonce = {0};
-  pcp_datagram_body_read_bytes(sizeof(nonce.data), nonce.data, src, 0);
-
-  pcp_protocol_t protocol = pcp_datagram_body_read_uint8_t(src, 12);
-  if (!pcp_protocol_is_valid(protocol)) {
-    return (pcp_peer_response_or_error_t){.has_value = false,
-                                          .error = UNSUPP_PROTOCOL};
-  }
-
-  return (pcp_peer_response_or_error_t){
-      .has_value = true,
-      .value = {.code = code,
-                .ttl = ttl,
-                .epoch = epoch,
-                .nonce = nonce,
-                .protocol = protocol,
-                .internal = pcp_datagram_body_read_uint16_t(src, 16),
-                .external = {.ip = pcp_datagram_body_read_ip_address(src, 20),
-                             .port = pcp_datagram_body_read_uint16_t(src, 18)},
-                .peer = {.ip = pcp_datagram_body_read_ip_address(src, 40),
-                         .port = pcp_datagram_body_read_uint16_t(src, 36)}}};
-}*/
+  pcp_datagram_body_read_bytes((view_t){sizeof(nonce.data), nonce.data},
+                               datagram, 0);
+  return (pcp_peer_response_t){
+      .nonce = nonce,
+      .protocol = pcp_datagram_body_read_uint8_t(datagram, 12),
+      .internal = pcp_datagram_body_read_uint16_t(datagram, 16),
+      .external = {.ip = pcp_datagram_body_read_ip_address(datagram, 20),
+                   .port = pcp_datagram_body_read_uint16_t(datagram, 18)},
+      .peer = {.ip = pcp_datagram_body_read_ip_address(datagram, 40),
+               .port = pcp_datagram_body_read_uint16_t(datagram, 36)}};
+}
 
 static void pcp_client_internal_peer(const pcp_client_internal_t *client,
                                      pcp_protocol_t protocol,
