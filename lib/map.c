@@ -1,8 +1,8 @@
-#include "map.h"
+#include <pcp/pcp.h>
+
+#include "client.h"
 #include "datagram.h"
-#include "internal.h"
-#include "pcp/pcp.h"
-#include "socket.h"
+#include "map.h"
 
 #include <assert.h>
 
@@ -51,14 +51,15 @@ pcp_map_response_t pcp_datagram_body_read_map_response(const_view_t datagram) {
                    .port = pcp_datagram_body_read_uint16_t(datagram, 18)}};
 }
 
-static void pcp_client_internal_map(const pcp_client_internal_t *client,
-                                    pcp_protocol_t protocol,
-                                    port_t internal_port,
-                                    socket_address_t external,
-                                    time_t ttl,
-                                    size_t options_count,
-                                    const pcp_option_t[options_count],
-                                    void (*)(pcp_mapping_or_error_t result)) {
+static void
+pcp_client_map_request_internal(const pcp_client_internal_t *client,
+                                pcp_protocol_t protocol,
+                                port_t internal_port,
+                                socket_address_t external,
+                                time_t ttl,
+                                size_t options_count,
+                                const pcp_option_t[options_count],
+                                void (*)(pcp_mapping_or_error_t result)) {
 
   auto const request =
       pcp_map_request_create(protocol,
@@ -73,19 +74,20 @@ static void pcp_client_internal_map(const pcp_client_internal_t *client,
       (view_t){.size = sizeof(datagram.data), .data = datagram.data}, &request);
 
   constexpr size_t REQUEST_SIZE = PCP_HEADER_SIZE + PCP_MAP_REQUEST_BODY_SIZE;
-  CALL(&client->transport, send, REQUEST_SIZE, datagram.data, nullptr);
+  CALL(&client->transport, send, REQUEST_SIZE, datagram.data,
+       (transport_on_send_t){});
   CALL(&client->transport, run);
 }
 
-void pcp_client_map(const pcp_client_t *client,
-                    pcp_protocol_t protocol,
-                    port_t internal_port,
-                    socket_address_t external,
-                    time_t ttl,
-                    size_t options_count,
-                    const pcp_option_t options[options_count],
-                    void (*callback)(pcp_mapping_or_error_t)) {
-  pcp_client_internal_map((const pcp_client_internal_t *)client, protocol,
-                          internal_port, external, ttl, options_count, options,
-                          callback);
+void pcp_client_map_request(const pcp_client_t *client,
+                            pcp_protocol_t protocol,
+                            port_t internal_port,
+                            socket_address_t external,
+                            time_t ttl,
+                            size_t options_count,
+                            const pcp_option_t options[options_count],
+                            void (*callback)(pcp_mapping_or_error_t)) {
+  pcp_client_map_request_internal((const pcp_client_internal_t *)client,
+                                  protocol, internal_port, external, ttl,
+                                  options_count, options, callback);
 }

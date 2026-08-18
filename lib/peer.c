@@ -1,11 +1,7 @@
 #include <pcp/pcp.h>
 
 #include "datagram.h"
-#include "internal.h"
 #include "peer.h"
-
-#include <assert.h>
-#include <stdlib.h>
 
 static constexpr size_t PCP_PEER_REQUEST_BODY_SIZE = 56;
 
@@ -73,15 +69,16 @@ pcp_datagram_body_read_peer_response(const_view_t datagram) {
                .port = pcp_datagram_body_read_uint16_t(datagram, 36)}};
 }
 
-static void pcp_client_internal_peer(const pcp_client_internal_t *client,
-                                     pcp_protocol_t protocol,
-                                     port_t internal_port,
-                                     socket_address_t external,
-                                     socket_address_t peer,
-                                     time_t ttl,
-                                     size_t options_count,
-                                     const pcp_option_t[options_count],
-                                     void (*)(pcp_mapping_or_error_t result)) {
+static void
+pcp_client_peer_request_internal(const pcp_client_internal_t *client,
+                                 pcp_protocol_t protocol,
+                                 port_t internal_port,
+                                 socket_address_t external,
+                                 socket_address_t peer,
+                                 time_t ttl,
+                                 size_t options_count,
+                                 const pcp_option_t[options_count],
+                                 void (*)(pcp_mapping_or_error_t result)) {
   auto const request = pcp_peer_request_create(
       protocol,
       (socket_address_t){.ip = client->transport.local.ip,
@@ -92,20 +89,21 @@ static void pcp_client_internal_peer(const pcp_client_internal_t *client,
   pcp_peer_request_to_datagram(&datagram, &request);
 
   constexpr size_t REQUEST_SIZE = PCP_HEADER_SIZE + PCP_PEER_REQUEST_BODY_SIZE;
-  CALL(&client->transport, send, REQUEST_SIZE, datagram.data, nullptr);
+  CALL(&client->transport, send, REQUEST_SIZE, datagram.data,
+       (transport_on_send_t){});
   CALL(&client->transport, run);
 }
 
-void pcp_client_peer(const pcp_client_t *client,
-                     pcp_protocol_t protocol,
-                     port_t internal_port,
-                     socket_address_t external,
-                     socket_address_t peer,
-                     time_t ttl,
-                     size_t options_count,
-                     const pcp_option_t options[options_count],
-                     void (*callback)(pcp_mapping_or_error_t result)) {
-  pcp_client_internal_peer((const pcp_client_internal_t *)client, protocol,
-                           internal_port, external, peer, ttl, options_count,
-                           options, callback);
+void pcp_client_peer_request(const pcp_client_t *client,
+                             pcp_protocol_t protocol,
+                             port_t internal_port,
+                             socket_address_t external,
+                             socket_address_t peer,
+                             time_t ttl,
+                             size_t options_count,
+                             const pcp_option_t options[options_count],
+                             void (*callback)(pcp_mapping_or_error_t result)) {
+  pcp_client_peer_request_internal((const pcp_client_internal_t *)client,
+                                   protocol, internal_port, external, peer, ttl,
+                                   options_count, options, callback);
 }

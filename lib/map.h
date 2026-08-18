@@ -2,17 +2,16 @@
 
 #include <pcp/pcp.h>
 
-#include "datagram.h"
-#include "internal.h"
+#include "client.h"
 
-void pcp_client_map(const pcp_client_t *client,
-                    pcp_protocol_t protocol,
-                    port_t internal,
-                    socket_address_t external,
-                    time_t ttl,
-                    size_t options_count,
-                    const pcp_option_t options[options_count],
-                    void (*callback)(pcp_mapping_or_error_t result));
+void pcp_client_map_request(const pcp_client_t *client,
+                            pcp_protocol_t protocol,
+                            port_t internal,
+                            socket_address_t external,
+                            time_t ttl,
+                            size_t options_count,
+                            const pcp_option_t options[options_count],
+                            void (*callback)(pcp_mapping_or_error_t result));
 
 typedef struct pcp_map_response {
   pcp_nonce_t nonce;

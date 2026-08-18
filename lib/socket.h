@@ -32,6 +32,7 @@ typedef struct socket {
   size_or_error_t (*recv)(const struct socket *self,
                           size_t size,
                           uint8_t dst[size]);
+  void_or_error_t (*shutdown)(struct socket *self);
   void_or_error_t (*close)(struct socket *self);
 } socket_t;
 

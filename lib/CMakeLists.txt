@@ -37,8 +37,8 @@ target_sources(pcp
       TYPE HEADERS
       BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
       FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/client.h
         ${CMAKE_CURRENT_SOURCE_DIR}/datagram.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/internal.h
         ${CMAKE_CURRENT_SOURCE_DIR}/map.h
         ${CMAKE_CURRENT_SOURCE_DIR}/peer.h
         ${CMAKE_CURRENT_SOURCE_DIR}/socket.h

@@ -1,16 +1,19 @@
+#include <errno.h>
 #include <pcp/pcp.h>
 
-#include "internal.h"
+#include "client.h"
 #include "map.h"
 #include "peer.h"
+#include "socket.h"
 #include "transport.h"
 
 #include <assert.h>
 #include <malloc.h>
+#include <string.h>
 
 pcp_nonce_t pcp_nonce_create() { return (pcp_nonce_t){.data = {0}}; }
 
-bool pcp_result_is_valid(pcp_result_t code) {
+static bool pcp_result_is_valid(pcp_result_t code) {
   switch (code) {
   case SUCCESS:
   case UNSUPP_VERSION:
@@ -33,7 +36,7 @@ bool pcp_result_is_valid(pcp_result_t code) {
   return true;
 }
 
-bool pcp_protocol_is_valid(pcp_protocol_t protocol) {
+static bool pcp_protocol_is_valid(pcp_protocol_t protocol) {
   switch (protocol) {
   case ALL:
   case UDP:
@@ -84,34 +87,23 @@ static void pcp_server_add_or_update_mapping(pcp_server_t *server,
   *target = mapping;
 }
 
-static void pcp_server_recv_announce(transport_t const * /*transport*/,
-                                     pcp_server_t * /*server*/,
-                                     const_view_t /*datagram*/) {}
-
-static void pcp_server_recv_map(transport_t const *transport,
-                                pcp_server_t *server,
-                                pcp_result_t code,
-                                time_t ttl,
-                                const_view_t datagram) {
-  pcp_map_response_t const response =
-      pcp_datagram_body_read_map_response(datagram);
-  if (code == SUCCESS) {
-    pcp_server_add_or_update_mapping(
-        server, (pcp_mapping_t){.protocol = response.protocol,
-                                .internal = {.ip = transport->local.ip,
-                                             .port = response.internal},
-                                .external = response.external,
-                                .ttl = ttl});
-  }
+static void_or_error_t
+pcp_server_recv_announce(transport_t const * /*transport*/,
+                         pcp_server_t * /*server*/,
+                         const_view_t /*datagram*/) {
+  return (void_or_error_t){.has_value = true};
 }
 
-static void pcp_server_recv_peer(transport_t const *transport,
-                                 pcp_server_t *server,
-                                 pcp_result_t code,
-                                 time_t ttl,
-                                 const_view_t datagram) {
-  pcp_peer_response_t const response =
-      pcp_datagram_body_read_peer_response(datagram);
+static void_or_error_t pcp_server_recv_map(transport_t const *transport,
+                                           pcp_server_t *server,
+                                           pcp_result_t code,
+                                           time_t ttl,
+                                           const_view_t datagram) {
+  pcp_map_response_t const response =
+      pcp_datagram_body_read_map_response(datagram);
+  if (!pcp_protocol_is_valid(response.protocol)) {
+    return (void_or_error_t){.has_value = false, .error = ENOTSUP};
+  }
   if (code == SUCCESS) {
     pcp_server_add_or_update_mapping(
         server, (pcp_mapping_t){.protocol = response.protocol,
@@ -120,6 +112,28 @@ static void pcp_server_recv_peer(transport_t const *transport,
                                 .external = response.external,
                                 .ttl = ttl});
   }
+  return (void_or_error_t){.has_value = true};
+}
+
+static void_or_error_t pcp_server_recv_peer(transport_t const *transport,
+                                            pcp_server_t *server,
+                                            pcp_result_t code,
+                                            time_t ttl,
+                                            const_view_t datagram) {
+  pcp_peer_response_t const response =
+      pcp_datagram_body_read_peer_response(datagram);
+  if (!pcp_protocol_is_valid(response.protocol)) {
+    return (void_or_error_t){.has_value = false, .error = ENOTSUP};
+  }
+  if (code == SUCCESS) {
+    pcp_server_add_or_update_mapping(
+        server, (pcp_mapping_t){.protocol = response.protocol,
+                                .internal = {.ip = transport->local.ip,
+                                             .port = response.internal},
+                                .external = response.external,
+                                .ttl = ttl});
+  }
+  return (void_or_error_t){.has_value = true};
 }
 
 static void pcp_server_recv(transport_t const *self,
@@ -131,22 +145,26 @@ static void pcp_server_recv(transport_t const *self,
   time_t epoch;
   pcp_datagram_read_response_header(&opcode, &code, &ttl, &epoch, datagram);
 
+  if (!pcp_result_is_valid(code)) {
+    return;
+  }
+
+  void_or_error_t result;
   switch (opcode) {
   case ANNOUNCE:
-    pcp_server_recv_announce(self, server, datagram);
+    result = pcp_server_recv_announce(self, server, datagram);
     break;
   case MAP:
-    pcp_server_recv_map(self, server, code, ttl, datagram);
+    result = pcp_server_recv_map(self, server, code, ttl, datagram);
     break;
   case PEER:
-    pcp_server_recv_peer(self, server, code, ttl, datagram);
-    break;
-  default:
-    assert(false);
+    result = pcp_server_recv_peer(self, server, code, ttl, datagram);
     break;
   }
 
-  CALL(self, close);
+  assert(result.has_value);
+
+  CALL(self, stop);
 }
 
 pcp_client_t *pcp_client_create(char const *pcp_server) {
@@ -156,9 +174,9 @@ pcp_client_t *pcp_client_create(char const *pcp_server) {
   }
 
   auto const transport = transport_connect(
-      pcp_server, (on_transport_data_t){
-                      .callback = (on_transport_data_callback_t)pcp_server_recv,
-                      .ctx = &client->server});
+      pcp_server,
+      (transport_on_data_t){.fn = (transport_on_data_callback_t)pcp_server_recv,
+                            .ctx = &client->server});
   if (!transport.has_value) {
     free(client);
     return nullptr;
@@ -167,8 +185,8 @@ pcp_client_t *pcp_client_create(char const *pcp_server) {
   *(pcp_client_internal_t *)client = (pcp_client_internal_t){
       .base = {.local = transport.value.local,
                .remote = transport.value.remote,
-               .map = pcp_client_map,
-               .peer = pcp_client_peer},
+               .map = pcp_client_map_request,
+               .peer = pcp_client_peer_request},
       .server = {.active = {.capacity = 0, .size = 0, .data = nullptr}},
       .transport = transport.value};
 

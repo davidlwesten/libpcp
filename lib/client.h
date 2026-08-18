@@ -25,6 +25,3 @@ typedef struct pcp_client_internal {
   pcp_server_t server;
   transport_t transport;
 } pcp_client_internal_t;
-
-bool pcp_result_is_valid(pcp_result_t code);
-bool pcp_protocol_is_valid(pcp_protocol_t protocol);

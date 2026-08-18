@@ -67,20 +67,26 @@ socket_recv(const socket_t *self, size_t size, uint8_t dst[size]) {
   return (size_or_error_t){.has_value = true, .value = (size_t)result};
 }
 
+static void_or_error_t socket_shutdown(socket_t *self) {
+  assert(self);
+  return (void_or_error_t){.has_value = (shutdown(self->fd, SHUT_RDWR) == 0),
+                           .error = errno};
+}
+
 static void_or_error_t socket_close(socket_t *self) {
   assert(self);
-  if (-1 == close(self->fd)) {
-    return (void_or_error_t){.has_value = false, .error = errno};
-  }
+
+  int const result = close(self->fd);
 
   *self = (socket_t){.fd = -1,
                      .local = {},
                      .remote = {},
-                     .send = socket_send,
-                     .recv = socket_recv,
-                     .close = socket_close};
+                     .send = nullptr,
+                     .recv = nullptr,
+                     .shutdown = nullptr,
+                     .close = nullptr};
 
-  return (void_or_error_t){.has_value = true};
+  return (void_or_error_t){.has_value = (result == 0), .error = errno};
 }
 
 static socket_or_error_t socket_create(int fd) {
@@ -124,6 +130,7 @@ static socket_or_error_t socket_create(int fd) {
                                        .remote = remote,
                                        .send = socket_send,
                                        .recv = socket_recv,
+                                       .shutdown = socket_shutdown,
                                        .close = socket_close}};
 }
 
