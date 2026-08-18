@@ -45,10 +45,9 @@ static errno_t gai_error_to_errno(int gai_error) {
   }
 }
 
-static size_or_error_t
-socket_send(const socket_t *self, size_t size, const uint8_t src[size]) {
+static size_or_error_t socket_send(const socket_t *self, const_view_t src) {
   assert(self);
-  auto const result = send(self->fd, src, size, 0);
+  auto const result = send(self->fd, src.data, src.size, 0);
   if (-1 == result) {
     return (size_or_error_t){.has_value = false, .error = errno};
   }
@@ -56,10 +55,9 @@ socket_send(const socket_t *self, size_t size, const uint8_t src[size]) {
   return (size_or_error_t){.has_value = true, .value = (size_t)result};
 }
 
-static size_or_error_t
-socket_recv(const socket_t *self, size_t size, uint8_t dst[size]) {
+static size_or_error_t socket_recv(const socket_t *self, view_t dst) {
   assert(self);
-  auto const result = recv(self->fd, dst, size, 0);
+  auto const result = recv(self->fd, dst.data, dst.size, 0);
   if (-1 == result) {
     return (size_or_error_t){.has_value = false, .error = errno};
   }

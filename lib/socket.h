@@ -3,9 +3,10 @@
 #include <pcp/ip.h>
 #include <pcp/pcp.h>
 
-#include <stdint.h>
+#include "types.h"
 
 #include <errno.h>
+#include <stdint.h>
 
 typedef typeof(errno) errno_t;
 
@@ -26,12 +27,8 @@ typedef struct socket {
   int fd;
   socket_address_t local;
   socket_address_t remote;
-  size_or_error_t (*send)(const struct socket *self,
-                          size_t size,
-                          const uint8_t src[size]);
-  size_or_error_t (*recv)(const struct socket *self,
-                          size_t size,
-                          uint8_t dst[size]);
+  size_or_error_t (*send)(const struct socket *self, const_view_t data);
+  size_or_error_t (*recv)(const struct socket *self, view_t buffer);
   void_or_error_t (*shutdown)(struct socket *self);
   void_or_error_t (*close)(struct socket *self);
 } socket_t;

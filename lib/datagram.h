@@ -10,10 +10,6 @@
 constexpr size_t PCP_DATAGRAM_MAX_SIZE = 1100;
 constexpr size_t PCP_HEADER_SIZE = 24;
 
-typedef struct pcp_datagram {
-  uint8_t data[PCP_DATAGRAM_MAX_SIZE];
-} pcp_datagram_t;
-
 void pcp_datagram_write_request_header(view_t dst,
                                        pcp_opcode_t opcode,
                                        time_t ttl,

@@ -10,11 +10,10 @@ typedef struct transport_socket {
 } transport_socket_t;
 
 static void transport_socket_send(const transport_t *self,
-                                  size_t size,
-                                  const uint8_t data[size],
+                                  const_view_t src,
                                   transport_on_send_t callback) {
   auto const ctx = (const transport_socket_t *)self->ctx;
-  auto const result = CALL(&ctx->socket, send, size, data);
+  auto const result = CALL(&ctx->socket, send, src);
   if (callback.fn) {
     callback.fn(self, callback.ctx, result);
   }
@@ -27,7 +26,8 @@ static void transport_socket_run(transport_t const *self) {
   uint8_t data[MTU] = {0};
 
   for (;;) {
-    auto const size = CALL(&ctx->socket, recv, sizeof(data), data);
+    auto const size =
+        CALL(&ctx->socket, recv, (view_t){.size = sizeof(data), .data = data});
     if (!size.has_value) {
       if (size.error == EAGAIN || size.error == EWOULDBLOCK ||
           size.error == EINTR) {

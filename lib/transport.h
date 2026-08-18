@@ -19,8 +19,7 @@ typedef struct transport {
   socket_address_t remote;
   void *ctx;
   void (*send)(struct transport const *self,
-               size_t size,
-               const uint8_t src[size],
+               const_view_t data,
                transport_on_send_t callback);
   void (*run)(struct transport const *self);
   void (*stop)(struct transport const *self);

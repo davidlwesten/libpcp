@@ -27,31 +27,17 @@ static pcp_peer_request_t pcp_peer_request_create(pcp_protocol_t protocol,
                               .ttl = ttl};
 }
 
-static void pcp_peer_request_to_datagram(pcp_datagram_t *dst,
+static void pcp_peer_request_to_datagram(view_t dst,
                                          const pcp_peer_request_t *src) {
-  pcp_datagram_write_request_header(
-      (view_t){.size = sizeof(dst->data), .data = dst->data}, PEER, src->ttl,
-      src->internal.ip);
+  pcp_datagram_write_request_header(dst, PEER, src->ttl, src->internal.ip);
   pcp_datagram_body_write_bytes(
-      (view_t){sizeof(dst->data), dst->data}, 0,
-      (const_view_t){sizeof(src->nonce.data), src->nonce.data});
-  pcp_datagram_body_write_uint8_t(
-      (view_t){.size = sizeof(dst->data), .data = dst->data}, 12,
-      (uint8_t)src->protocol);
-  pcp_datagram_body_write_uint16_t(
-      (view_t){.size = sizeof(dst->data), .data = dst->data}, 16,
-      src->internal.port);
-  pcp_datagram_body_write_uint16_t(
-      (view_t){.size = sizeof(dst->data), .data = dst->data}, 18,
-      src->external.port);
-  pcp_datagram_body_write_ip_address(
-      (view_t){.size = sizeof(dst->data), .data = dst->data}, 20,
-      src->external.ip);
-  pcp_datagram_body_write_uint16_t(
-      (view_t){.size = sizeof(dst->data), .data = dst->data}, 36,
-      src->peer.port);
-  pcp_datagram_body_write_ip_address(
-      (view_t){.size = sizeof(dst->data), .data = dst->data}, 40, src->peer.ip);
+      dst, 0, (const_view_t){sizeof(src->nonce.data), src->nonce.data});
+  pcp_datagram_body_write_uint8_t(dst, 12, (uint8_t)src->protocol);
+  pcp_datagram_body_write_uint16_t(dst, 16, src->internal.port);
+  pcp_datagram_body_write_uint16_t(dst, 18, src->external.port);
+  pcp_datagram_body_write_ip_address(dst, 20, src->external.ip);
+  pcp_datagram_body_write_uint16_t(dst, 36, src->peer.port);
+  pcp_datagram_body_write_ip_address(dst, 40, src->peer.ip);
 }
 
 pcp_peer_response_t
@@ -85,11 +71,13 @@ pcp_client_peer_request_internal(const pcp_client_internal_t *client,
                          .port = internal_port},
       external, peer, ttl);
 
-  pcp_datagram_t datagram = {0};
-  pcp_peer_request_to_datagram(&datagram, &request);
+  uint8_t packet[PCP_DATAGRAM_MAX_SIZE];
+  pcp_peer_request_to_datagram((view_t){.size = sizeof(packet), .data = packet},
+                               &request);
 
   constexpr size_t REQUEST_SIZE = PCP_HEADER_SIZE + PCP_PEER_REQUEST_BODY_SIZE;
-  CALL(&client->transport, send, REQUEST_SIZE, datagram.data,
+  CALL(&client->transport, send,
+       (const_view_t){.size = REQUEST_SIZE, .data = packet},
        (transport_on_send_t){});
   CALL(&client->transport, run);
 }

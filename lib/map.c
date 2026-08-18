@@ -3,6 +3,7 @@
 #include "client.h"
 #include "datagram.h"
 #include "map.h"
+#include "types.h"
 
 #include <assert.h>
 
@@ -69,12 +70,13 @@ pcp_client_map_request_internal(const pcp_client_internal_t *client,
                              },
                              external, ttl);
 
-  pcp_datagram_t datagram = {0};
-  pcp_map_request_to_datagram(
-      (view_t){.size = sizeof(datagram.data), .data = datagram.data}, &request);
+  uint8_t packet[PCP_DATAGRAM_MAX_SIZE];
+  pcp_map_request_to_datagram((view_t){.size = sizeof(packet), .data = packet},
+                              &request);
 
   constexpr size_t REQUEST_SIZE = PCP_HEADER_SIZE + PCP_MAP_REQUEST_BODY_SIZE;
-  CALL(&client->transport, send, REQUEST_SIZE, datagram.data,
+  CALL(&client->transport, send,
+       (const_view_t){.size = REQUEST_SIZE, .data = packet},
        (transport_on_send_t){});
   CALL(&client->transport, run);
 }
