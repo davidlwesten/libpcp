@@ -1,17 +1,16 @@
 #pragma once
 
-#include "datagram.h"
 #include "socket.h"
 
 struct transport;
 
 typedef void (*transport_on_send_callback_t)(struct transport const *self,
-                                             void *ctx,
-                                             size_or_error_t result);
+                                             size_or_error_t result,
+                                             void *userdata);
 
 typedef struct transport_on_send {
   transport_on_send_callback_t fn;
-  void *ctx;
+  void *userdata;
 } transport_on_send_t;
 
 typedef struct transport {
@@ -28,7 +27,7 @@ typedef struct transport {
 
 typedef void (*transport_on_data_callback_t)(transport_t const *transport,
                                              void *ctx,
-                                             const_view_t datagram);
+                                             const_view_t packet);
 
 typedef struct transport_on_data {
   transport_on_data_callback_t fn;

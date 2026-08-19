@@ -23,4 +23,4 @@ typedef struct pcp_peer_response {
   socket_address_t peer;
 } pcp_peer_response_t;
 
-pcp_peer_response_t pcp_datagram_body_read_peer_response(const_view_t datagram);
+pcp_peer_response_t pcp_packet_body_read_peer_response(const_view_t packet);

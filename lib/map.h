@@ -20,4 +20,4 @@ typedef struct pcp_map_response {
   socket_address_t external;
 } pcp_map_response_t;
 
-pcp_map_response_t pcp_datagram_body_read_map_response(const_view_t datagram);
+pcp_map_response_t pcp_packet_body_read_map_response(const_view_t packet);

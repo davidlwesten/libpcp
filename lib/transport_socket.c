@@ -15,7 +15,7 @@ static void transport_socket_send(const transport_t *self,
   auto const ctx = (const transport_socket_t *)self->ctx;
   auto const result = CALL(&ctx->socket, send, src);
   if (callback.fn) {
-    callback.fn(self, callback.ctx, result);
+    callback.fn(self, result, callback.userdata);
   }
 }
 

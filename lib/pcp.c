@@ -3,6 +3,7 @@
 
 #include "client.h"
 #include "map.h"
+#include "packet.h"
 #include "peer.h"
 #include "socket.h"
 #include "transport.h"
@@ -90,7 +91,7 @@ static void pcp_server_add_or_update_mapping(pcp_server_t *server,
 static void_or_error_t
 pcp_server_recv_announce(transport_t const * /*transport*/,
                          pcp_server_t * /*server*/,
-                         const_view_t /*datagram*/) {
+                         const_view_t /*packet*/) {
   return (void_or_error_t){.has_value = true};
 }
 
@@ -98,9 +99,8 @@ static void_or_error_t pcp_server_recv_map(transport_t const *transport,
                                            pcp_server_t *server,
                                            pcp_result_t code,
                                            time_t ttl,
-                                           const_view_t datagram) {
-  pcp_map_response_t const response =
-      pcp_datagram_body_read_map_response(datagram);
+                                           const_view_t packet) {
+  pcp_map_response_t const response = pcp_packet_body_read_map_response(packet);
   if (!pcp_protocol_is_valid(response.protocol)) {
     return (void_or_error_t){.has_value = false, .error = ENOTSUP};
   }
@@ -119,9 +119,9 @@ static void_or_error_t pcp_server_recv_peer(transport_t const *transport,
                                             pcp_server_t *server,
                                             pcp_result_t code,
                                             time_t ttl,
-                                            const_view_t datagram) {
+                                            const_view_t packet) {
   pcp_peer_response_t const response =
-      pcp_datagram_body_read_peer_response(datagram);
+      pcp_packet_body_read_peer_response(packet);
   if (!pcp_protocol_is_valid(response.protocol)) {
     return (void_or_error_t){.has_value = false, .error = ENOTSUP};
   }
@@ -138,12 +138,12 @@ static void_or_error_t pcp_server_recv_peer(transport_t const *transport,
 
 static void pcp_server_recv(transport_t const *self,
                             pcp_server_t *server,
-                            const_view_t datagram) {
+                            const_view_t packet) {
   pcp_opcode_t opcode;
   pcp_result_t code;
   time_t ttl;
   time_t epoch;
-  pcp_datagram_read_response_header(&opcode, &code, &ttl, &epoch, datagram);
+  pcp_packet_read_response_header(&opcode, &code, &ttl, &epoch, packet);
 
   if (!pcp_result_is_valid(code)) {
     return;
@@ -152,13 +152,13 @@ static void pcp_server_recv(transport_t const *self,
   void_or_error_t result;
   switch (opcode) {
   case ANNOUNCE:
-    result = pcp_server_recv_announce(self, server, datagram);
+    result = pcp_server_recv_announce(self, server, packet);
     break;
   case MAP:
-    result = pcp_server_recv_map(self, server, code, ttl, datagram);
+    result = pcp_server_recv_map(self, server, code, ttl, packet);
     break;
   case PEER:
-    result = pcp_server_recv_peer(self, server, code, ttl, datagram);
+    result = pcp_server_recv_peer(self, server, code, ttl, packet);
     break;
   }
 

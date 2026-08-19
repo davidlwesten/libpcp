@@ -8,10 +8,10 @@ target_compile_definitions(pcp
 
 target_sources(pcp
   PRIVATE
-    datagram.c
     ip.c
     map.c
     option.c
+    packet.c
     pcp.c
     peer.c
     result.c
@@ -38,7 +38,7 @@ target_sources(pcp
       BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
       FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/client.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/datagram.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/packet.h
         ${CMAKE_CURRENT_SOURCE_DIR}/map.h
         ${CMAKE_CURRENT_SOURCE_DIR}/peer.h
         ${CMAKE_CURRENT_SOURCE_DIR}/socket.h
