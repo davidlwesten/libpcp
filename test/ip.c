@@ -82,7 +82,7 @@ static void test_socket_address_ntop_ipv6(void) {
   }
 }
 
-void ip_tests(void) {
+void ip_tests() {
   RUN_TEST(test_ip_address_from_in_addr);
   RUN_TEST(test_ip_address_from_in6_addr);
   RUN_TEST(test_ip_address_ntop_ipv4);

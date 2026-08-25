@@ -4,7 +4,7 @@ project(pcp VERSION 1.0 LANGUAGES C)
 
 add_library(project_warnings INTERFACE)
 
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(project_warnings INTERFACE
     -Wall
     -Wextra

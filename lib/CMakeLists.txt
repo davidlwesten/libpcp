@@ -8,13 +8,15 @@ target_compile_definitions(pcp
 
 target_sources(pcp
   PRIVATE
+    array.c
+    client.c
     ip.c
     map.c
     option.c
     packet.c
-    pcp.c
     peer.c
     result.c
+    server.c
     socket.c
     transport_socket.c)
 
@@ -37,10 +39,12 @@ target_sources(pcp
       TYPE HEADERS
       BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
       FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/array.h
         ${CMAKE_CURRENT_SOURCE_DIR}/client.h
         ${CMAKE_CURRENT_SOURCE_DIR}/packet.h
         ${CMAKE_CURRENT_SOURCE_DIR}/map.h
         ${CMAKE_CURRENT_SOURCE_DIR}/peer.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/server.h
         ${CMAKE_CURRENT_SOURCE_DIR}/socket.h
         ${CMAKE_CURRENT_SOURCE_DIR}/transport.h
         ${CMAKE_CURRENT_SOURCE_DIR}/types.h)

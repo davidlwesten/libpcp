@@ -17,7 +17,6 @@ typedef enum pcp_result {
   CANNOT_PROVIDE_EXTERNAL,
   ADDRESS_MISMATCH,
   EXCESSIVE_REMOTE_PEERS,
-  SYSTEM
 } pcp_result_t;
 
 const char *pcp_strerror(pcp_result_t code);

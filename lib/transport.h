@@ -2,45 +2,65 @@
 
 #include "socket.h"
 
-struct transport;
+typedef struct transport transport_t;
 
-typedef void (*transport_on_send_callback_t)(struct transport const *self,
-                                             size_or_error_t result,
-                                             void *userdata);
+typedef void (*transport_on_send_callback_t)(transport_t const *self,
+                                             void *transportdata,
+                                             void *closuredata,
+                                             size_or_error_t result);
 
 typedef struct transport_on_send {
   transport_on_send_callback_t fn;
   void *userdata;
 } transport_on_send_t;
 
+typedef void (*transport_send_t)(transport_t const *self,
+                                 const_view_t data,
+                                 transport_on_send_t callback);
+
+typedef void (*transport_on_timer_callback_t)(transport_t const *self,
+                                              void *transportdata,
+                                              void *closuredata);
+
+typedef struct transport_on_timer {
+  transport_on_timer_callback_t fn;
+  void *userdata;
+} transport_on_timer_t;
+
+typedef void (*transport_run_t)(transport_t const *self);
+typedef void (*transport_stop_t)(transport_t const *self);
+typedef void (*transport_close_t)(transport_t const *self);
+
+typedef struct transport_timer {
+  void (*stop)(struct transport_timer const *self);
+} transport_timer_t;
+
+typedef transport_timer_t (*transport_add_timer_t)(transport_t *self,
+                                                   time_t delay,
+                                                   transport_on_timer_t action);
+
 typedef struct transport {
   socket_address_t local;
   socket_address_t remote;
-  void *ctx;
-  void (*send)(struct transport const *self,
-               const_view_t data,
-               transport_on_send_t callback);
-  void (*run)(struct transport const *self);
-  void (*stop)(struct transport const *self);
-  void (*close)(struct transport const *self);
+  transport_send_t send;
+  transport_add_timer_t add_timer;
+  transport_run_t run;
+  transport_stop_t stop;
+  transport_close_t close;
 } transport_t;
 
-typedef void (*transport_on_data_callback_t)(transport_t const *transport,
-                                             void *ctx,
-                                             const_view_t packet);
-
-typedef struct transport_on_data {
-  transport_on_data_callback_t fn;
-  void *ctx;
-} transport_on_data_t;
+typedef void (*transport_on_recv_t)(transport_t const *transport,
+                                    void *userdata,
+                                    const_view_t packet);
 
 typedef struct transport_or_error {
   bool has_value;
   union {
-    transport_t value;
+    transport_t *value;
     errno_t error;
   };
 } transport_or_error_t;
 
 transport_or_error_t transport_connect(const char *server,
-                                       transport_on_data_t callback);
+                                       transport_on_recv_t callback,
+                                       void *userdata);

@@ -13,8 +13,12 @@ typedef struct const_view {
   uint8_t const *data;
 } const_view_t;
 
-typedef enum pcp_opcode {
+typedef enum pcp_opcode : uint8_t {
   ANNOUNCE = 0,
   MAP,
   PEER,
 } pcp_opcode_t;
+
+typedef struct pcp_nonce {
+  uint8_t data[12];
+} pcp_nonce_t;

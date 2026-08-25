@@ -1,81 +1,160 @@
+#include "packet.h"
 #include "socket.h"
+
+#include "array.h"
 #include "transport.h"
 
-#include <asm-generic/errno.h>
+#include <assert.h>
+#include <errno.h>
 #include <malloc.h>
+#include <sys/select.h>
+#include <wchar.h>
+
+typedef struct transport_base {
+  transport_t public;
+  transport_on_recv_t recv;
+  void *userdata;
+} transport_base_t;
+
+typedef struct transport_socket_timer {
+  time_t ttl;
+  transport_on_timer_t action;
+} transport_socket_timer_t;
 
 typedef struct transport_socket {
+  transport_base_t base;
   socket_t socket;
-  transport_on_data_t recv;
+  transport_socket_timer_t *timers;
 } transport_socket_t;
 
-static void transport_socket_send(const transport_t *self,
+static void transport_socket_send(transport_socket_t const *self,
                                   const_view_t src,
-                                  transport_on_send_t callback) {
-  auto const ctx = (const transport_socket_t *)self->ctx;
-  auto const result = CALL(&ctx->socket, send, src);
-  if (callback.fn) {
-    callback.fn(self, result, callback.userdata);
+                                  transport_on_send_t closure) {
+  auto const result = CALL(&self->socket, send, src);
+  if (closure.fn) {
+    closure.fn((transport_t const *)self, self->base.userdata, closure.userdata,
+               result);
   }
 }
 
-static void transport_socket_run(transport_t const *self) {
-  auto const ctx = (transport_socket_t *)self->ctx;
+static void transport_socket_timer_cancel(transport_timer_t const * /*timer*/) {
+}
 
-  static constexpr size_t MTU = 1500;
-  uint8_t data[MTU] = {0};
+static int min_timer(transport_socket_timer_t const *lhs,
+                     transport_socket_timer_t const *rhs) {
+  return (int)lhs->ttl - (int)rhs->ttl;
+}
+
+static transport_timer_t
+transport_socket_add_timer(transport_socket_t *self,
+                           time_t ttl,
+                           transport_on_timer_t action) {
+  assert(self);
+  assert(ttl > 0);
+  transport_socket_timer_t const timer = {.ttl = time(nullptr) + ttl,
+                                          .action = action};
+  array_heap_push(self->timers, timer, (heap_compare_t)min_timer);
+  return (transport_timer_t){.stop = transport_socket_timer_cancel};
+}
+
+static time_t max_time_t(time_t lhs, time_t rhs) {
+  return lhs > rhs ? lhs : rhs;
+}
+
+static void transport_socket_run(transport_socket_t const *self) {
+  uint8_t data[PCP_PACKET_MAX_SIZE] = {0};
 
   for (;;) {
-    auto const size =
-        CALL(&ctx->socket, recv, (view_t){.size = sizeof(data), .data = data});
-    if (!size.has_value) {
-      if (size.error == EAGAIN || size.error == EWOULDBLOCK ||
-          size.error == EINTR) {
-        continue;
+    fd_set readfds = {0};
+    FD_SET(self->socket.fd, &readfds);
+
+    time_t now = time(nullptr);
+
+    struct timeval timeval = {0};
+    struct timeval *timeout = nullptr;
+    if (array_size(self->timers)) {
+      timeval.tv_sec = max_time_t(0, self->timers->ttl - now);
+      timeout = &timeval;
+    }
+
+    int const result =
+        select(self->socket.fd + 1, &readfds, nullptr, nullptr, timeout);
+
+    switch (result) {
+    case -1:
+      assert(errno == EINTR);
+    case 0: // timeout
+      now = time(nullptr);
+
+      while (array_size(self->timers) && (self->timers->ttl < now)) {
+        transport_socket_timer_t timer;
+        array_heap_pop(self->timers, &timer, (heap_compare_t)min_timer);
+        if (timer.action.fn) {
+          timer.action.fn((transport_t const *)self, self->base.userdata,
+                          timer.action.userdata);
+        }
       }
       break;
-    } else if (size.value == 0) {
-      // socket was closed
-      break;
-    } else if (ctx->recv.fn) {
-      ctx->recv.fn(self, ctx->recv.ctx,
-                   (const_view_t){.size = size.value, .data = data});
+    case 1: {
+      auto const size = CALL(&self->socket, recv,
+                             (view_t){.size = sizeof(data), .data = data});
+      if (!size.has_value) {
+        break;
+      }
+
+      if (size.value == 0) { // socket was closed
+        return;
+      }
+
+      if (self->base.recv) {
+        self->base.recv((transport_t const *)self, self->base.userdata,
+                        (const_view_t){.size = size.value, .data = data});
+      }
+    } break;
     }
   }
 }
 
-static void transport_socket_stop(transport_t const *self) {
-  auto const ctx = (transport_socket_t *)self->ctx;
-  CALL(&ctx->socket, shutdown);
+static void transport_socket_stop(transport_socket_t *self) {
+  CALL(&self->socket, shutdown);
 }
 
-static void transport_socket_close(transport_t const *self) {
-  auto const ctx = (transport_socket_t *)self->ctx;
-  CALL(&ctx->socket, close);
+static void transport_socket_close(transport_socket_t *self) {
+  CALL(&self->socket, close);
+  array_destroy(self->timers);
 }
 
 transport_or_error_t transport_connect(const char *server,
-                                       transport_on_data_t callback) {
+                                       transport_on_recv_t recv,
+                                       void *userdata) {
 
   auto socket = socket_connect(server, "pcp");
   if (!socket.has_value) {
     return (transport_or_error_t){.has_value = false, .error = socket.error};
   }
 
-  auto const ctx = (transport_socket_t *)malloc(sizeof(transport_socket_t));
-  if (!ctx) {
+  auto const transport =
+      (transport_socket_t *)malloc(sizeof(transport_socket_t));
+
+  if (!transport) {
     CALL(&socket.value, close);
     return (transport_or_error_t){.has_value = false, .error = ENOMEM};
   }
 
-  (*ctx) = (transport_socket_t){.socket = socket.value, .recv = callback};
+  (*transport) = (transport_socket_t){
+      .base.public = {.local = socket.value.local,
+                      .remote = socket.value.remote,
+                      .send = (transport_send_t)transport_socket_send,
+                      .add_timer =
+                          (transport_add_timer_t)transport_socket_add_timer,
+                      .run = (transport_run_t)transport_socket_run,
+                      .stop = (transport_stop_t)transport_socket_stop,
+                      .close = (transport_close_t)transport_socket_close},
+      .base.recv = recv,
+      .base.userdata = userdata,
+      .socket = socket.value,
+      .timers = array_create(transport_socket_timer_t)};
 
   return (transport_or_error_t){.has_value = true,
-                                .value = {.local = socket.value.local,
-                                          .remote = socket.value.remote,
-                                          .ctx = ctx,
-                                          .send = transport_socket_send,
-                                          .run = transport_socket_run,
-                                          .stop = transport_socket_stop,
-                                          .close = transport_socket_close}};
+                                .value = (transport_t *)transport};
 }

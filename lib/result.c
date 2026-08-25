@@ -33,10 +33,7 @@ const char *pcp_strerror(pcp_result_t result) {
     return "ADDRESS_MISMATCH";
   case EXCESSIVE_REMOTE_PEERS:
     return "EXCESSIVE_REMOTE_PEERS";
-  case SYSTEM:
-    return "SYSTEM";
   }
-  assert(false);
   return "Unexpected result code";
 }
 
