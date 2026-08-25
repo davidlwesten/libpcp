@@ -71,7 +71,7 @@ void pcp_packet_write_request_header(view_t dst, pcp_request_header_t header) {
   pcp_packet_write_ip_address(dst, 8, header.internal.ip);
 }
 
-packet_t pcp_packet_write_request(const pcp_request_t *src) {
+packet_t *pcp_packet_write_request(const pcp_request_t *src) {
   switch (src->header.opcode) {
   case MAP:
     return pcp_packet_write_map_request(&src->map);
@@ -79,7 +79,7 @@ packet_t pcp_packet_write_request(const pcp_request_t *src) {
     return pcp_packet_write_peer_request(&src->peer);
   default:
     assert(false);
-    return (packet_t){.size = 0, .data = nullptr};
+    return nullptr;
   }
 }
 
@@ -158,12 +158,13 @@ ip_address_t pcp_packet_body_read_ip_address(const_view_t src, size_t offset) {
   return pcp_packet_read_ip_address(src, PCP_HEADER_SIZE + offset);
 }
 
-packet_t packet_create(size_t size, uint8_t const src[size]) {
-  auto const data = (uint8_t *)malloc(size);
-  if (data) {
-    memcpy(data, src, size);
+packet_t *packet_create(size_t size, uint8_t const src[size]) {
+  auto const packet = (packet_t *)malloc(sizeof(packet_t) + size);
+  if (packet) {
+    packet->size = size;
+    memcpy(packet->data, src, size);
   }
-  return (packet_t){.size = data ? size : 0, .data = data};
+  return packet;
 }
 
-void packet_destroy(packet_t packet) { free(packet.data); }
+void packet_destroy(packet_t *packet) { free(packet); }

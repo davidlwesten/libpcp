@@ -14,7 +14,7 @@
 
 static constexpr size_t PCP_MAP_REQUEST_BODY_SIZE = 36;
 
-packet_t pcp_packet_write_map_request(pcp_map_request_t const *request) {
+packet_t *pcp_packet_write_map_request(pcp_map_request_t const *request) {
   uint8_t buffer[PCP_PACKET_MAX_SIZE] = {0};
   view_t const dst = {.size = sizeof(buffer), .data = buffer};
 

@@ -11,12 +11,15 @@
 constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
 constexpr size_t PCP_HEADER_SIZE = 24;
 
-typedef view_t packet_t;
+typedef struct packet {
+  size_t size;
+  uint8_t data[];
+} packet_t;
 
-packet_t packet_create(size_t size, uint8_t const src[size]);
-void packet_destroy(packet_t packet);
+packet_t *packet_create(size_t size, uint8_t const src[size]);
+void packet_destroy(packet_t *packet);
 
-packet_t pcp_packet_write_request(pcp_request_t const *src);
+packet_t *pcp_packet_write_request(pcp_request_t const *src);
 void pcp_packet_write_request_header(view_t dst, pcp_request_header_t header);
 void pcp_packet_body_write_bytes(view_t dst, size_t offset, const_view_t bytes);
 void pcp_packet_body_write_uint8_t(view_t dst, size_t offset, uint8_t value);

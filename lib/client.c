@@ -18,30 +18,21 @@ pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
   return (pcp_nonce_t){.data = {}};
 }
 
-static void pcp_client_on_send(void *packet, size_or_error_t result) {
+static void pcp_client_on_send(packet_t *packet, size_or_error_t result) {
   assert(result.has_value);
-  free(packet);
+  packet_destroy(packet);
 }
 
 void pcp_client_send(pcp_client_internal_t const *client,
                      const pcp_request_t *request) {
-  packet_t packet = {0};
-  switch (request->header.opcode) {
-  case MAP:
-    packet = pcp_packet_write_map_request(&request->map);
-    break;
-  case PEER:
-    packet = pcp_packet_write_peer_request(&request->peer);
-    break;
-  case ANNOUNCE:
-    assert(false);
-    break;
+  auto const packet = pcp_packet_write_request(request);
+  if (packet) {
+    CALL(client->transport, send,
+         (const_view_t){.size = packet->size, .data = packet->data},
+         (transport_on_send_t){
+             .fn = (transport_on_send_callback_t)pcp_client_on_send,
+             .userdata = packet});
   }
-
-  CALL(
-      client->transport, send,
-      (const_view_t){.size = packet.size, .data = packet.data},
-      (transport_on_send_t){.fn = pcp_client_on_send, .userdata = packet.data});
 }
 
 pcp_client_t *pcp_client_create(char const *pcp_server) {

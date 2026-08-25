@@ -12,7 +12,7 @@
 
 static constexpr size_t PCP_PEER_REQUEST_BODY_SIZE = 56;
 
-packet_t pcp_packet_write_peer_request(pcp_peer_request_t const *src) {
+packet_t *pcp_packet_write_peer_request(pcp_peer_request_t const *src) {
   uint8_t buffer[PCP_PACKET_MAX_SIZE] = {0};
   view_t dst = {.size = sizeof(buffer), .data = buffer};
 

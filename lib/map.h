@@ -15,7 +15,7 @@ void pcp_client_map_request(pcp_client_t *client,
                             size_t options_count,
                             const pcp_option_t options[options_count]);
 
-packet_t pcp_packet_write_map_request(pcp_map_request_t const *src);
+packet_t *pcp_packet_write_map_request(pcp_map_request_t const *src);
 
 pcp_map_request_t pcp_packet_body_read_map_request(pcp_request_header_t header,
                                                    const_view_t packet);
