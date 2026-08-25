@@ -8,9 +8,6 @@
 #include "response.h"
 #include "transport.h"
 
-#include <alloca.h>
-#include <assert.h>
-
 #include <stdio.h>
 
 static constexpr size_t PCP_PEER_REQUEST_BODY_SIZE = 56;
@@ -55,21 +52,22 @@ packet_t pcp_packet_write_peer_request(pcp_peer_request_t const *src) {
 
 pcp_peer_request_t
 pcp_packet_body_read_peer_request(pcp_request_header_t header,
-                                  const_view_t src) {
+                                  const_view_t packet) {
   pcp_nonce_t nonce = {};
   pcp_packet_body_read_bytes(
-      (view_t){.size = sizeof(nonce.data), .data = nonce.data}, src, 0);
+      (view_t){.size = sizeof(nonce.data), .data = nonce.data}, packet, 0);
   return (pcp_peer_request_t){
       .header = {.opcode = header.opcode,
                  .ttl = header.ttl,
                  .internal = {.ip = header.internal.ip,
-                              .port = pcp_packet_body_read_uint16_t(src, 16)}},
+                              .port =
+                                  pcp_packet_body_read_uint16_t(packet, 16)}},
       .nonce = nonce,
-      .protocol = pcp_packet_body_read_uint8_t(src, 12),
-      .external = {.ip = pcp_packet_body_read_ip_address(src, 20),
-                   .port = pcp_packet_body_read_uint16_t(src, 18)},
-      .peer = {.ip = pcp_packet_body_read_ip_address(src, 40),
-               .port = pcp_packet_body_read_uint16_t(src, 36)},
+      .protocol = pcp_packet_body_read_uint8_t(packet, 12),
+      .external = {.ip = pcp_packet_body_read_ip_address(packet, 20),
+                   .port = pcp_packet_body_read_uint16_t(packet, 18)},
+      .peer = {.ip = pcp_packet_body_read_ip_address(packet, 40),
+               .port = pcp_packet_body_read_uint16_t(packet, 36)},
       .options_count = 0,
       .options = nullptr};
 }
@@ -88,14 +86,6 @@ pcp_packet_body_read_peer_response(pcp_response_header_t header,
                    .port = pcp_packet_body_read_uint16_t(src, 18)},
       .peer = {.ip = pcp_packet_body_read_ip_address(src, 40),
                .port = pcp_packet_body_read_uint16_t(src, 36)}};
-}
-
-static void pcp_client_peer_request_on_send(struct transport const *
-                                            /*self*/,
-                                            void * /*transportdata*/,
-                                            void * /*closuredata*/,
-                                            size_or_error_t result) {
-  assert(result.has_value);
 }
 
 static void
@@ -119,14 +109,7 @@ pcp_client_peer_request_internal(pcp_client_internal_t *client,
                .options_count = options_count,
                .options = options}};
 
-  packet_t const packet = pcp_packet_write_peer_request(&request.peer);
-
-  CALL(client->transport, send,
-       (const_view_t){.size = packet.size, .data = packet.data},
-       (transport_on_send_t){.fn = pcp_client_peer_request_on_send,
-                             .userdata = nullptr});
-
-  packet_destroy(packet);
+  pcp_client_send(client, &request);
 }
 
 void pcp_client_peer_request(pcp_client_t *client,

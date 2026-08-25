@@ -2,6 +2,7 @@
 
 #include <pcp/pcp.h>
 
+#include "request.h"
 #include "server.h"
 #include "transport.h"
 
@@ -12,3 +13,5 @@ typedef struct pcp_client_internal {
 } pcp_client_internal_t;
 
 pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t *client);
+void pcp_client_send(pcp_client_internal_t const *client,
+                     pcp_request_t const *packet);

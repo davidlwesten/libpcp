@@ -1,7 +1,6 @@
 #include "array.h"
 
 #include <assert.h>
-#include <inttypes.h>
 #include <malloc.h>
 #include <string.h>
 

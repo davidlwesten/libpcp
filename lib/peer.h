@@ -20,7 +20,7 @@ packet_t pcp_packet_write_peer_request(pcp_peer_request_t const *src);
 
 pcp_peer_request_t
 pcp_packet_body_read_peer_request(pcp_request_header_t header,
-                                  const_view_t src);
+                                  const_view_t packet);
 
 pcp_peer_response_t
 pcp_packet_body_read_peer_response(pcp_response_header_t header,

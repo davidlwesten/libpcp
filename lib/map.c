@@ -14,22 +14,22 @@
 
 static constexpr size_t PCP_MAP_REQUEST_BODY_SIZE = 36;
 
-packet_t pcp_packet_write_map_request(pcp_map_request_t const *src) {
+packet_t pcp_packet_write_map_request(pcp_map_request_t const *request) {
   uint8_t buffer[PCP_PACKET_MAX_SIZE] = {0};
   view_t const dst = {.size = sizeof(buffer), .data = buffer};
 
-  pcp_packet_write_request_header(dst, src->header);
+  pcp_packet_write_request_header(dst, request->header);
   pcp_packet_body_write_bytes(
-      dst, 0, (const_view_t){sizeof(src->nonce.data), src->nonce.data});
-  pcp_packet_body_write_uint8_t(dst, 12, src->protocol);
-  pcp_packet_body_write_uint16_t(dst, 16, src->header.internal.port);
-  pcp_packet_body_write_uint16_t(dst, 18, src->external.port);
-  pcp_packet_body_write_ip_address(dst, 20, src->external.ip);
+      dst, 0, (const_view_t){sizeof(request->nonce.data), request->nonce.data});
+  pcp_packet_body_write_uint8_t(dst, 12, request->protocol);
+  pcp_packet_body_write_uint16_t(dst, 16, request->header.internal.port);
+  pcp_packet_body_write_uint16_t(dst, 18, request->external.port);
+  pcp_packet_body_write_ip_address(dst, 20, request->external.ip);
 
   size_t offset = PCP_MAP_REQUEST_BODY_SIZE;
 
-  auto const begin = src->options;
-  auto const end = begin + src->options_count;
+  auto const begin = request->options;
+  auto const end = begin + request->options_count;
   for (auto iter = begin; iter != end; ++iter) {
     switch ((iter->code) & 0x7F) {
     case THIRD_PARTY:
@@ -51,19 +51,20 @@ packet_t pcp_packet_write_map_request(pcp_map_request_t const *src) {
 }
 
 pcp_map_request_t pcp_packet_body_read_map_request(pcp_request_header_t header,
-                                                   const_view_t src) {
+                                                   const_view_t packet) {
   pcp_nonce_t nonce = {0};
   pcp_packet_body_read_bytes(
-      (view_t){.size = sizeof(nonce.data), .data = nonce.data}, src, 0);
+      (view_t){.size = sizeof(nonce.data), .data = nonce.data}, packet, 0);
   return (pcp_map_request_t){
       .header = {.opcode = header.opcode,
                  .ttl = header.ttl,
                  .internal = {.ip = header.internal.ip,
-                              .port = pcp_packet_body_read_uint8_t(src, 16)}},
+                              .port =
+                                  pcp_packet_body_read_uint8_t(packet, 16)}},
       .nonce = nonce,
-      .protocol = pcp_packet_body_read_uint8_t(src, 12),
-      .external = {.ip = pcp_packet_body_read_ip_address(src, 20),
-                   .port = pcp_packet_body_read_uint16_t(src, 18)},
+      .protocol = pcp_packet_body_read_uint8_t(packet, 12),
+      .external = {.ip = pcp_packet_body_read_ip_address(packet, 20),
+                   .port = pcp_packet_body_read_uint16_t(packet, 18)},
       .options_count = 0,
       .options = nullptr};
 }
@@ -80,13 +81,6 @@ pcp_packet_body_read_map_response(pcp_response_header_t header,
       .internal = pcp_packet_body_read_uint16_t(src, 16),
       .external = {.ip = pcp_packet_body_read_ip_address(src, 20),
                    .port = pcp_packet_body_read_uint16_t(src, 18)}};
-}
-
-static void pcp_client_map_request_on_send(struct transport const * /*self*/,
-                                           void * /*transportdata*/,
-                                           void * /*closuredata*/,
-                                           size_or_error_t result) {
-  assert(result.has_value);
 }
 
 static void
@@ -108,14 +102,7 @@ pcp_client_map_request_internal(pcp_client_internal_t *client,
               .options_count = options_count,
               .options = options}};
 
-  packet_t const packet = pcp_packet_write_map_request(&request.map);
-
-  CALL(client->transport, send,
-       (const_view_t){.size = packet.size, .data = packet.data},
-       (transport_on_send_t){.fn = pcp_client_map_request_on_send,
-                             .userdata = nullptr});
-
-  packet_destroy(packet);
+  pcp_client_send(client, &request);
 }
 
 void pcp_client_map_request(pcp_client_t *client,

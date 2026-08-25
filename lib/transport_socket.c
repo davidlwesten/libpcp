@@ -13,7 +13,6 @@
 typedef struct transport_base {
   transport_t public;
   transport_on_recv_t recv;
-  void *userdata;
 } transport_base_t;
 
 typedef struct transport_socket_timer {
@@ -32,8 +31,7 @@ static void transport_socket_send(transport_socket_t const *self,
                                   transport_on_send_t closure) {
   auto const result = CALL(&self->socket, send, src);
   if (closure.fn) {
-    closure.fn((transport_t const *)self, self->base.userdata, closure.userdata,
-               result);
+    closure.fn(closure.userdata, result);
   }
 }
 
@@ -90,8 +88,7 @@ static void transport_socket_run(transport_socket_t const *self) {
         transport_socket_timer_t timer;
         array_heap_pop(self->timers, &timer, (heap_compare_t)min_timer);
         if (timer.action.fn) {
-          timer.action.fn((transport_t const *)self, self->base.userdata,
-                          timer.action.userdata);
+          timer.action.fn(timer.action.userdata);
         }
       }
       break;
@@ -106,9 +103,9 @@ static void transport_socket_run(transport_socket_t const *self) {
         return;
       }
 
-      if (self->base.recv) {
-        self->base.recv((transport_t const *)self, self->base.userdata,
-                        (const_view_t){.size = size.value, .data = data});
+      if (self->base.recv.fn) {
+        self->base.recv.fn(self->base.recv.userdata,
+                           (const_view_t){.size = size.value, .data = data});
       }
     } break;
     }
@@ -125,8 +122,7 @@ static void transport_socket_close(transport_socket_t *self) {
 }
 
 transport_or_error_t transport_connect(const char *server,
-                                       transport_on_recv_t recv,
-                                       void *userdata) {
+                                       transport_on_recv_t callback) {
 
   auto socket = socket_connect(server, "pcp");
   if (!socket.has_value) {
@@ -150,8 +146,7 @@ transport_or_error_t transport_connect(const char *server,
                       .run = (transport_run_t)transport_socket_run,
                       .stop = (transport_stop_t)transport_socket_stop,
                       .close = (transport_close_t)transport_socket_close},
-      .base.recv = recv,
-      .base.userdata = userdata,
+      .base.recv = callback,
       .socket = socket.value,
       .timers = array_create(transport_socket_timer_t)};
 

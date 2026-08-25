@@ -48,17 +48,13 @@ typedef struct pcp_response_or_error {
 } pcp_response_or_error_t;
 
 static pcp_response_or_error_t
-pcp_server_recv_announce(transport_t const * /*transport*/,
-                         const_view_t packet) {
-  return (pcp_response_or_error_t){
-      .has_value = true,
-      .value = {.header = pcp_packet_read_response_header(packet)}};
+pcp_client_recv_announce(pcp_response_header_t header) {
+  return (pcp_response_or_error_t){.has_value = true,
+                                   .value = {.announce.header = header}};
 }
 
-static pcp_response_or_error_t
-pcp_server_recv_map(transport_t const * /*transport*/,
-                    pcp_response_header_t header,
-                    const_view_t packet) {
+static pcp_response_or_error_t pcp_client_recv_map(pcp_response_header_t header,
+                                                   const_view_t packet) {
   pcp_response_t const response = {
       .map = pcp_packet_body_read_map_response(header, packet)};
 
@@ -70,9 +66,7 @@ pcp_server_recv_map(transport_t const * /*transport*/,
 }
 
 static pcp_response_or_error_t
-pcp_server_recv_peer(transport_t const * /*transport*/,
-                     pcp_response_header_t header,
-                     const_view_t packet) {
+pcp_client_recv_peer(pcp_response_header_t header, const_view_t packet) {
   pcp_response_t const response = {
       .peer = pcp_packet_body_read_peer_response(header, packet)};
 
@@ -89,7 +83,7 @@ typedef struct optional_pcp_response_header {
 } optional_pcp_response_header_t;
 
 static optional_pcp_response_header_t
-pcp_server_read_response_header(const_view_t packet) {
+pcp_client_read_response_header(const_view_t packet) {
   if (packet.size < 4) {
     // missing header
     return (optional_pcp_response_header_t){.has_value = false};
@@ -114,10 +108,8 @@ pcp_server_read_response_header(const_view_t packet) {
   return (optional_pcp_response_header_t){.has_value = true, .value = header};
 }
 
-void pcp_server_recv(transport_t const *self,
-                     pcp_client_internal_t * /*client*/,
-                     const_view_t packet) {
-  auto const header = pcp_server_read_response_header(packet);
+void pcp_client_recv(pcp_client_internal_t * /*client*/, const_view_t packet) {
+  auto const header = pcp_client_read_response_header(packet);
   if (!header.has_value) {
     return;
   }
@@ -125,13 +117,13 @@ void pcp_server_recv(transport_t const *self,
   pcp_response_or_error_t result;
   switch (header.value.opcode) {
   case ANNOUNCE:
-    result = pcp_server_recv_announce(self, packet);
+    result = pcp_client_recv_announce(header.value);
     break;
   case MAP:
-    result = pcp_server_recv_map(self, header.value, packet);
+    result = pcp_client_recv_map(header.value, packet);
     break;
   case PEER:
-    result = pcp_server_recv_peer(self, header.value, packet);
+    result = pcp_client_recv_peer(header.value, packet);
     break;
   }
 
