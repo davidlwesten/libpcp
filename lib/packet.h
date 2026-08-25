@@ -28,7 +28,9 @@ void pcp_packet_body_write_ip_address(view_t dst,
                                       size_t offset,
                                       ip_address_t ip);
 
-pcp_request_t pcp_packet_read_request(const_view_t src);
+pcp_request_header_t pcp_packet_read_request_header(const_view_t src);
+pcp_request_t pcp_packet_read_request(pcp_request_header_t header,
+                                      const_view_t src);
 pcp_response_header_t pcp_packet_read_response_header(const_view_t src);
 pcp_response_t pcp_packet_read_response(const_view_t src);
 void pcp_packet_body_read_bytes(view_t dst, const_view_t src, size_t offset);

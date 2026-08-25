@@ -4,7 +4,8 @@
 
 typedef struct transport transport_t;
 
-typedef void (*transport_on_send_callback_t)(void *userdata,
+typedef void (*transport_on_send_callback_t)(void *transportdata,
+                                             void *userdata,
                                              size_or_error_t result);
 
 typedef struct transport_on_send {
@@ -43,7 +44,8 @@ typedef struct transport {
   transport_close_t close;
 } transport_t;
 
-typedef void (*transport_on_recv_callback_t)(void *userdata,
+typedef void (*transport_on_recv_callback_t)(void *transportdata,
+                                             void *userdata,
                                              const_view_t packet);
 
 typedef struct transport_on_recv {
@@ -60,4 +62,5 @@ typedef struct transport_or_error {
 } transport_or_error_t;
 
 transport_or_error_t transport_connect(const char *server,
-                                       transport_on_recv_t callback);
+                                       transport_on_recv_t callback,
+                                       void *userdata);

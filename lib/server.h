@@ -15,4 +15,6 @@ typedef struct pcp_server {
 
 typedef struct pcp_client_internal pcp_client_internal_t;
 
-void pcp_client_recv(pcp_client_internal_t *client, const_view_t packet);
+void pcp_client_recv(pcp_client_internal_t *client,
+                     void *userdata,
+                     const_view_t packet);

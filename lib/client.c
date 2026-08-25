@@ -1,5 +1,6 @@
 #include <pcp/pcp.h>
 
+#include "array.h"
 #include "client.h"
 #include "map.h"
 #include "peer.h"
@@ -18,12 +19,20 @@ pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
   return (pcp_nonce_t){.data = {}};
 }
 
-static void pcp_client_on_send(packet_t *packet, size_or_error_t result) {
-  assert(result.has_value);
-  packet_destroy(packet);
+static void pcp_client_on_send(pcp_client_internal_t *client,
+                               packet_t *packet,
+                               size_or_error_t result) {
+  if (!result.has_value) {
+    packet_destroy(packet);
+  }
+  assert(result.value == packet->size);
+
+  pcp_mapping_t const pending = {
+      .pending = {.base = {.state = PENDING, .request = packet}}};
+  array_push_back(client->mappings, pending);
 }
 
-void pcp_client_send(pcp_client_internal_t const *client,
+void pcp_client_send(pcp_client_internal_t *client,
                      const pcp_request_t *request) {
   auto const packet = pcp_packet_write_request(request);
   if (packet) {
@@ -44,7 +53,8 @@ pcp_client_t *pcp_client_create(char const *pcp_server) {
   auto const transport = transport_connect(
       pcp_server,
       (transport_on_recv_t){.fn = (transport_on_recv_callback_t)pcp_client_recv,
-                            .userdata = client});
+                            .userdata = nullptr},
+      client);
 
   if (!transport.has_value) {
     free(client);
@@ -55,7 +65,8 @@ pcp_client_t *pcp_client_create(char const *pcp_server) {
                                              .peer = pcp_client_peer_request,
                                              .run = pcp_client_run},
                                     .server = {},
-                                    .transport = transport.value};
+                                    .transport = transport.value,
+                                    .mappings = array_create(pcp_mapping_t)};
 
   return (pcp_client_t *)client;
 }

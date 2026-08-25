@@ -23,8 +23,3 @@ pcp_map_request_t pcp_packet_body_read_map_request(pcp_request_header_t header,
 pcp_map_response_t
 pcp_packet_body_read_map_response(pcp_response_header_t header,
                                   const_view_t packet);
-
-typedef struct pcp_client_internal pcp_client_internal_t;
-
-void pcp_map_update(pcp_client_internal_t const *client,
-                    pcp_response_t const *response);

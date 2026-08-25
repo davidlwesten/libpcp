@@ -1,12 +1,15 @@
 #include "server.h"
 
+#include "array.h"
 #include "client.h"
 #include "map.h"
+#include "mapping.h"
 #include "packet.h"
 #include "peer.h"
 #include "response.h"
 
 #include <assert.h>
+#include <string.h>
 
 static bool pcp_result_valid(pcp_result_t code) {
   switch (code) {
@@ -48,13 +51,14 @@ typedef struct pcp_response_or_error {
 } pcp_response_or_error_t;
 
 static pcp_response_or_error_t
-pcp_client_recv_announce(pcp_response_header_t header) {
+read_and_validate_announce_response(pcp_response_header_t header) {
   return (pcp_response_or_error_t){.has_value = true,
-                                   .value = {.announce.header = header}};
+                                   .value = {.announce = {.header = header}}};
 }
 
-static pcp_response_or_error_t pcp_client_recv_map(pcp_response_header_t header,
-                                                   const_view_t packet) {
+static pcp_response_or_error_t
+read_and_validate_map_response(pcp_response_header_t header,
+                               const_view_t packet) {
   pcp_response_t const response = {
       .map = pcp_packet_body_read_map_response(header, packet)};
 
@@ -66,7 +70,8 @@ static pcp_response_or_error_t pcp_client_recv_map(pcp_response_header_t header,
 }
 
 static pcp_response_or_error_t
-pcp_client_recv_peer(pcp_response_header_t header, const_view_t packet) {
+read_and_validate_peer_response(pcp_response_header_t header,
+                                const_view_t packet) {
   pcp_response_t const response = {
       .peer = pcp_packet_body_read_peer_response(header, packet)};
 
@@ -83,7 +88,7 @@ typedef struct optional_pcp_response_header {
 } optional_pcp_response_header_t;
 
 static optional_pcp_response_header_t
-pcp_client_read_response_header(const_view_t packet) {
+read_and_validate_response_header(const_view_t packet) {
   if (packet.size < 4) {
     // missing header
     return (optional_pcp_response_header_t){.has_value = false};
@@ -108,8 +113,35 @@ pcp_client_read_response_header(const_view_t packet) {
   return (optional_pcp_response_header_t){.has_value = true, .value = header};
 }
 
-void pcp_client_recv(pcp_client_internal_t * /*client*/, const_view_t packet) {
-  auto const header = pcp_client_read_response_header(packet);
+pcp_mapping_t *find_matching_request(pcp_mapping_t *begin,
+                                     pcp_mapping_t *end,
+                                     pcp_response_t const *response) {
+  for (auto iter = begin; iter != end; ++iter) {
+    const_view_t const packet = {.size = iter->base.request->size,
+                                 .data = iter->base.request->data};
+    pcp_request_header_t const header = pcp_packet_read_request_header(packet);
+    if (header.opcode == response->header.opcode) {
+      pcp_request_t const request = pcp_packet_read_request(header, packet);
+      if (header.opcode == MAP) {
+        if (memcmp(&request.map.nonce, &response->map.nonce,
+                   sizeof(request.map.nonce)) == 0) {
+          return iter;
+        }
+      } else if (header.opcode == PEER) {
+        if (memcmp(&request.peer.nonce, &response->peer.nonce,
+                   sizeof(request.peer.nonce)) == 0) {
+          return iter;
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
+void pcp_client_recv(pcp_client_internal_t *client,
+                     void * /*userdata*/,
+                     const_view_t packet) {
+  auto const header = read_and_validate_response_header(packet);
   if (!header.has_value) {
     return;
   }
@@ -117,15 +149,26 @@ void pcp_client_recv(pcp_client_internal_t * /*client*/, const_view_t packet) {
   pcp_response_or_error_t result;
   switch (header.value.opcode) {
   case ANNOUNCE:
-    result = pcp_client_recv_announce(header.value);
+    result = read_and_validate_announce_response(header.value);
     break;
   case MAP:
-    result = pcp_client_recv_map(header.value, packet);
+    result = read_and_validate_map_response(header.value, packet);
     break;
   case PEER:
-    result = pcp_client_recv_peer(header.value, packet);
+    result = read_and_validate_peer_response(header.value, packet);
     break;
   }
 
-  assert(result.has_value);
+  if (!result.has_value) {
+    return;
+  }
+
+  auto const begin = client->mappings;
+  auto const end = begin + array_size(client->mappings);
+  auto const mapping = find_matching_request(begin, end, &result.value);
+  if (!mapping) {
+    return;
+  }
+
+  pcp_mapping_update(mapping, &result.value);
 }

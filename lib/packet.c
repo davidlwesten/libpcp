@@ -53,15 +53,6 @@ static ip_address_t pcp_packet_read_ip_address(const_view_t src,
   return result;
 }
 
-static pcp_request_header_t pcp_packet_read_request_header(const_view_t src) {
-  assert(src.size > 0 && src.data[0] == PCP_VERSION);
-  assert(src.size > 1 && !(src.data[1] & 0x80));
-  return (pcp_request_header_t){
-      .opcode = src.data[1],
-      .ttl = pcp_packet_read_uint32_t(src, 4),
-      .internal = {.ip = pcp_packet_read_ip_address(src, 8), .port = 0}};
-}
-
 void pcp_packet_write_request_header(view_t dst, pcp_request_header_t header) {
   assert(header.opcode == ANNOUNCE || header.opcode == MAP ||
          header.opcode == PEER);
@@ -103,8 +94,17 @@ void pcp_packet_body_write_ip_address(view_t dst,
   pcp_packet_write_ip_address(dst, PCP_HEADER_SIZE + offset, ip);
 }
 
-pcp_request_t pcp_packet_read_request(const_view_t src) {
-  auto const header = pcp_packet_read_request_header(src);
+pcp_request_header_t pcp_packet_read_request_header(const_view_t src) {
+  assert(src.size > 0 && src.data[0] == PCP_VERSION);
+  assert(src.size > 1 && !(src.data[1] & 0x80));
+  return (pcp_request_header_t){
+      .opcode = src.data[1],
+      .ttl = pcp_packet_read_uint32_t(src, 4),
+      .internal = {.ip = pcp_packet_read_ip_address(src, 8), .port = 0}};
+}
+
+pcp_request_t pcp_packet_read_request(pcp_request_header_t header,
+                                      const_view_t src) {
   switch (header.opcode) {
   case MAP:
     return (pcp_request_t){.map =
