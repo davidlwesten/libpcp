@@ -23,13 +23,23 @@ static void pcp_client_on_send(pcp_client_internal_t *client,
                                packet_t *packet,
                                size_or_error_t result) {
   if (!result.has_value) {
+    if (result.error == EAGAIN || result.error == EWOULDBLOCK ||
+        result.error == EINTR || result.error == ENOBUFS) {
+      CALL(client->transport, send,
+           (const_view_t){.size = packet->size, .data = packet->data},
+           (transport_on_send_t){
+               .fn = (transport_on_send_callback_t)pcp_client_on_send,
+               .userdata = packet});
+      return;
+    }
     packet_destroy(packet);
   }
+
   assert(result.value == packet->size);
 
-  pcp_mapping_t const pending = {
-      .pending = {.base = {.state = PENDING, .request = packet}}};
-  array_push_back(client->mappings, pending);
+  pcp_mapping_t const mapping = pcp_mapping_create_pending(
+      client->transport, packet, array_size(client->mappings));
+  array_push_back(client->mappings, mapping);
 }
 
 void pcp_client_send(pcp_client_internal_t *client,

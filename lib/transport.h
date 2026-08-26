@@ -5,7 +5,7 @@
 typedef struct transport transport_t;
 
 typedef void (*transport_on_send_callback_t)(void *transportdata,
-                                             void *userdata,
+                                             void *closuredata,
                                              size_or_error_t result);
 
 typedef struct transport_on_send {
@@ -13,7 +13,8 @@ typedef struct transport_on_send {
   void *userdata;
 } transport_on_send_t;
 
-typedef void (*transport_on_timer_callback_t)(void *userdata);
+typedef void (*transport_on_timer_callback_t)(void *transportdata,
+                                              void *closuredata);
 
 typedef struct transport_on_timer {
   transport_on_timer_callback_t fn;
@@ -45,7 +46,7 @@ typedef struct transport {
 } transport_t;
 
 typedef void (*transport_on_recv_callback_t)(void *transportdata,
-                                             void *userdata,
+                                             void *closuredata,
                                              const_view_t packet);
 
 typedef struct transport_on_recv {

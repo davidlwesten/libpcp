@@ -9,7 +9,6 @@
 #include "response.h"
 
 #include <assert.h>
-#include <string.h>
 
 static bool pcp_result_valid(pcp_result_t code) {
   switch (code) {
@@ -113,31 +112,6 @@ read_and_validate_response_header(const_view_t packet) {
   return (optional_pcp_response_header_t){.has_value = true, .value = header};
 }
 
-pcp_mapping_t *find_matching_request(pcp_mapping_t *begin,
-                                     pcp_mapping_t *end,
-                                     pcp_response_t const *response) {
-  for (auto iter = begin; iter != end; ++iter) {
-    const_view_t const packet = {.size = iter->base.request->size,
-                                 .data = iter->base.request->data};
-    pcp_request_header_t const header = pcp_packet_read_request_header(packet);
-    if (header.opcode == response->header.opcode) {
-      pcp_request_t const request = pcp_packet_read_request(header, packet);
-      if (header.opcode == MAP) {
-        if (memcmp(&request.map.nonce, &response->map.nonce,
-                   sizeof(request.map.nonce)) == 0) {
-          return iter;
-        }
-      } else if (header.opcode == PEER) {
-        if (memcmp(&request.peer.nonce, &response->peer.nonce,
-                   sizeof(request.peer.nonce)) == 0) {
-          return iter;
-        }
-      }
-    }
-  }
-  return nullptr;
-}
-
 void pcp_client_recv(pcp_client_internal_t *client,
                      void * /*userdata*/,
                      const_view_t packet) {
@@ -165,10 +139,7 @@ void pcp_client_recv(pcp_client_internal_t *client,
 
   auto const begin = client->mappings;
   auto const end = begin + array_size(client->mappings);
-  auto const mapping = find_matching_request(begin, end, &result.value);
-  if (!mapping) {
-    return;
+  for (auto mapping = begin; mapping != end; ++mapping) {
+    pcp_mapping_update(mapping, &result.value);
   }
-
-  pcp_mapping_update(mapping, &result.value);
 }

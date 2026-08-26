@@ -15,4 +15,4 @@ typedef struct pcp_client_internal {
 
 pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t *client);
 void pcp_client_send(pcp_client_internal_t *client,
-                     pcp_request_t const *packet);
+                     pcp_request_t const *request);

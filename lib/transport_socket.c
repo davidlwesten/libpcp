@@ -88,7 +88,7 @@ static void transport_socket_run(transport_socket_t const *self) {
         transport_socket_timer_t timer;
         array_heap_pop(self->timers, &timer, (heap_compare_t)min_timer);
         if (timer.action.fn) {
-          timer.action.fn(timer.action.userdata);
+          timer.action.fn(self->base.userdata, timer.action.userdata);
         }
       }
       break;
