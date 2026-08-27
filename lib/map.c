@@ -8,10 +8,6 @@
 #include "response.h"
 #include "types.h"
 
-#include <alloca.h>
-#include <assert.h>
-#include <string.h>
-
 static constexpr size_t PCP_MAP_REQUEST_BODY_SIZE = 36;
 
 packet_t *pcp_packet_write_map_request(pcp_map_request_t const *request) {
@@ -90,7 +86,7 @@ pcp_client_map_request_internal(pcp_client_internal_t *client,
                                 socket_address_t external,
                                 time_t ttl,
                                 size_t options_count,
-                                const pcp_option_t options[options_count]) {
+                                pcp_option_t const options[options_count]) {
   pcp_request_t const request = {
       .map = {.header = {.opcode = MAP,
                          .ttl = ttl,
@@ -111,7 +107,7 @@ void pcp_client_map_request(pcp_client_t *client,
                             socket_address_t external,
                             time_t ttl,
                             size_t options_count,
-                            const pcp_option_t options[options_count]) {
+                            pcp_option_t const options[options_count]) {
   pcp_client_map_request_internal((pcp_client_internal_t *)client, protocol,
                                   internal_port, external, ttl, options_count,
                                   options);

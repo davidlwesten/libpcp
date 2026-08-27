@@ -2,8 +2,8 @@
 
 #include "array.h"
 #include "client.h"
+#include "lease.h"
 #include "map.h"
-#include "mapping.h"
 #include "packet.h"
 #include "peer.h"
 #include "response.h"
@@ -137,9 +137,9 @@ void pcp_client_recv(pcp_client_internal_t *client,
     return;
   }
 
-  auto const begin = client->mappings;
-  auto const end = begin + array_size(client->mappings);
-  for (auto mapping = begin; mapping != end; ++mapping) {
-    pcp_mapping_update(mapping, &result.value);
+  auto const begin = client->leases;
+  auto const end = begin + array_size(client->leases);
+  for (auto lease = begin; lease != end; ++lease) {
+    pcp_lease_update(lease, &result.value);
   }
 }

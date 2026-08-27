@@ -2,7 +2,7 @@
 
 #include <pcp/pcp.h>
 
-#include "mapping.h"
+#include "lease.h"
 #include "server.h"
 #include "transport.h"
 
@@ -10,7 +10,7 @@ typedef struct pcp_client_internal {
   pcp_client_t base;
   pcp_server_t server;
   transport_t *transport;
-  pcp_mapping_t *mappings;
+  pcp_lease_t *leases;
 } pcp_client_internal_t;
 
 pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t *client);

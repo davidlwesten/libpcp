@@ -8,8 +8,6 @@
 #include "response.h"
 #include "transport.h"
 
-#include <stdio.h>
-
 static constexpr size_t PCP_PEER_REQUEST_BODY_SIZE = 56;
 
 packet_t *pcp_packet_write_peer_request(pcp_peer_request_t const *src) {

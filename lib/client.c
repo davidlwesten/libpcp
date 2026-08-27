@@ -37,9 +37,9 @@ static void pcp_client_on_send(pcp_client_internal_t *client,
 
   assert(result.value == packet->size);
 
-  pcp_mapping_t const mapping = pcp_mapping_create_pending(
-      client->transport, packet, array_size(client->mappings));
-  array_push_back(client->mappings, mapping);
+  pcp_lease_t const new_lease = pcp_lease_create_pending(
+      client->transport, packet, array_size(client->leases));
+  array_push_back(client->leases, new_lease);
 }
 
 void pcp_client_send(pcp_client_internal_t *client,
@@ -76,7 +76,7 @@ pcp_client_t *pcp_client_create(char const *pcp_server) {
                                              .run = pcp_client_run},
                                     .server = {},
                                     .transport = transport.value,
-                                    .mappings = array_create(pcp_mapping_t)};
+                                    .leases = array_create(pcp_lease_t)};
 
   return (pcp_client_t *)client;
 }

@@ -1,12 +1,13 @@
-#include "packet.h"
 #include "socket.h"
 
 #include "array.h"
+#include "packet.h"
 #include "transport.h"
 
 #include <assert.h>
 #include <errno.h>
 #include <malloc.h>
+
 #include <sys/select.h>
 
 typedef struct transport_base {

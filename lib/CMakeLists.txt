@@ -11,8 +11,8 @@ target_sources(pcp
     array.c
     client.c
     ip.c
+    lease.c
     map.c
-    mapping.c
     option.c
     packet.c
     peer.c
@@ -42,9 +42,9 @@ target_sources(pcp
       FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/array.h
         ${CMAKE_CURRENT_SOURCE_DIR}/client.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/packet.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/lease.h
         ${CMAKE_CURRENT_SOURCE_DIR}/map.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/mapping.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/packet.h
         ${CMAKE_CURRENT_SOURCE_DIR}/peer.h
         ${CMAKE_CURRENT_SOURCE_DIR}/server.h
         ${CMAKE_CURRENT_SOURCE_DIR}/socket.h
