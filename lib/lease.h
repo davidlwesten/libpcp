@@ -20,6 +20,7 @@ typedef void (*pcp_lease_state_update_t)(pcp_lease_t *mapping,
 
 typedef struct pcp_lease_state_base {
   pcp_lease_state_t state;
+  transport_t *transport;
   packet_t *request;
 } pcp_lease_state_base_t;
 

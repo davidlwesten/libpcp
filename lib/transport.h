@@ -21,9 +21,7 @@ typedef struct transport_on_timer {
   void *userdata;
 } transport_on_timer_t;
 
-typedef struct transport_timer {
-  void (*stop)(struct transport_timer const *self);
-} transport_timer_t;
+typedef uint32_t transport_timer_t;
 
 typedef void (*transport_run_t)(transport_t const *self);
 typedef void (*transport_stop_t)(transport_t const *self);
@@ -34,12 +32,15 @@ typedef void (*transport_send_t)(transport_t const *self,
 typedef transport_timer_t (*transport_add_timer_t)(transport_t *self,
                                                    time_t delay,
                                                    transport_on_timer_t action);
+typedef void (*transport_remove_timer_t)(transport_t *self,
+                                         transport_timer_t timer);
 
 typedef struct transport {
   socket_address_t local;
   socket_address_t remote;
   transport_send_t send;
   transport_add_timer_t add_timer;
+  transport_remove_timer_t remove_timer;
   transport_run_t run;
   transport_stop_t stop;
   transport_close_t close;

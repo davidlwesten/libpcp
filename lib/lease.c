@@ -28,7 +28,7 @@ static void pending_lease_update(pcp_lease_t *lease,
     return;
   }
 
-  CALL(&lease->pending.rtx.timer, stop);
+  CALL(lease->pending.base.transport, remove_timer, lease->pending.rtx.timer);
 
   if (response->header.code == SUCCESS) {
     *lease = (pcp_lease_t){.active = {.base = lease->pending.base}};
@@ -122,7 +122,8 @@ pcp_lease_t pcp_lease_create_pending(transport_t *transport,
       .count = 1,
       .max_count = PCP_MRC};
   return (pcp_lease_t){
-      .pending = {.base = {.state = PENDING, .request = packet},
-                  .start = time(nullptr),
-                  .rtx = timer}};
+      .pending = {
+          .base = {.state = PENDING, .transport = transport, .request = packet},
+          .start = time(nullptr),
+          .rtx = timer}};
 }

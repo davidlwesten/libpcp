@@ -4,8 +4,10 @@
 #include "packet.h"
 #include "transport.h"
 
+#include <alloca.h>
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <malloc.h>
 
 #include <sys/select.h>
@@ -17,6 +19,7 @@ typedef struct transport_base {
 } transport_base_t;
 
 typedef struct transport_socket_timer {
+  uint32_t id;
   time_t ttl;
   transport_on_timer_t action;
 } transport_socket_timer_t;
@@ -27,40 +30,60 @@ typedef struct transport_socket {
   transport_socket_timer_t *timers;
 } transport_socket_t;
 
-static void transport_socket_send(transport_socket_t const *self,
-                                  const_view_t src,
-                                  transport_on_send_t closure) {
+static void send_(transport_socket_t const *self,
+                  const_view_t src,
+                  transport_on_send_t closure) {
+  fprintf(stdout, "send\n");
+  fflush(stdout);
+
   auto const result = CALL(&self->socket, send, src);
   if (closure.fn) {
     closure.fn(self->base.userdata, closure.userdata, result);
   }
 }
 
-static void transport_socket_timer_cancel(transport_timer_t const * /*timer*/) {
-}
-
-static int min_timer(transport_socket_timer_t const *lhs,
-                     transport_socket_timer_t const *rhs) {
+static int min_timer_(transport_socket_timer_t const *lhs,
+                      transport_socket_timer_t const *rhs) {
   return (int)lhs->ttl - (int)rhs->ttl;
 }
 
-static transport_timer_t
-transport_socket_add_timer(transport_socket_t *self,
-                           time_t ttl,
-                           transport_on_timer_t action) {
+static void transport_remove_timer(transport_socket_t *transport,
+                                   transport_timer_t id) {
+  assert(transport);
+
+  auto const begin = transport->timers;
+  auto const end = begin + array_size(transport->timers);
+  assert(begin != end);
+  for (auto iter = begin; iter != end; ++iter) {
+    if (iter->id == id) {
+      transport_socket_timer_t timer;
+      array_swap(transport->timers, iter, end - 1);
+      array_pop_back(transport->timers, &timer);
+      array_heapify(transport->timers, (heap_compare_t)min_timer_);
+      return;
+    }
+  }
+}
+
+static transport_timer_t transport_add_timer(transport_socket_t *self,
+                                             time_t ttl,
+                                             transport_on_timer_t action) {
   assert(self);
   assert(ttl > 0);
-  transport_socket_timer_t const timer = {.ttl = time(nullptr) + ttl,
+
+  static uint32_t NEXT_ID = 0;
+  transport_socket_timer_t const timer = {.id = NEXT_ID++,
+                                          .ttl = time(nullptr) + ttl,
                                           .action = action};
-  array_heap_push(self->timers, timer, (heap_compare_t)min_timer);
-  return (transport_timer_t){.stop = transport_socket_timer_cancel};
+  array_heap_push(self->timers, timer, (heap_compare_t)min_timer_);
+  return timer.id;
 }
 
 static time_t max_time_t(time_t lhs, time_t rhs) {
   return lhs > rhs ? lhs : rhs;
 }
 
-static void transport_socket_run(transport_socket_t const *self) {
+static void transport_run(transport_socket_t *self) {
   uint8_t data[PCP_PACKET_MAX_SIZE] = {0};
 
   for (;;) {
@@ -87,10 +110,8 @@ static void transport_socket_run(transport_socket_t const *self) {
 
       while (array_size(self->timers) && (self->timers->ttl < now)) {
         transport_socket_timer_t timer;
-        array_heap_pop(self->timers, &timer, (heap_compare_t)min_timer);
-        if (timer.action.fn) {
-          timer.action.fn(self->base.userdata, timer.action.userdata);
-        }
+        array_heap_pop(self->timers, &timer, (heap_compare_t)min_timer_);
+        timer.action.fn(self->base.userdata, timer.action.userdata);
       }
       break;
     case 1: {
@@ -113,11 +134,11 @@ static void transport_socket_run(transport_socket_t const *self) {
   }
 }
 
-static void transport_socket_stop(transport_socket_t *self) {
+static void transport_stop(transport_socket_t *self) {
   CALL(&self->socket, shutdown);
 }
 
-static void transport_socket_close(transport_socket_t *self) {
+static void transport_close(transport_socket_t *self) {
   CALL(&self->socket, close);
   array_destroy(self->timers);
 }
@@ -142,12 +163,14 @@ transport_or_error_t transport_connect(const char *server,
   (*transport) = (transport_socket_t){
       .base = {.public = {.local = socket.value.local,
                           .remote = socket.value.remote,
-                          .send = (transport_send_t)transport_socket_send,
+                          .send = (transport_send_t)send_,
                           .add_timer =
-                              (transport_add_timer_t)transport_socket_add_timer,
-                          .run = (transport_run_t)transport_socket_run,
-                          .stop = (transport_stop_t)transport_socket_stop,
-                          .close = (transport_close_t)transport_socket_close},
+                              (transport_add_timer_t)transport_add_timer,
+                          .remove_timer =
+                              (transport_remove_timer_t)transport_remove_timer,
+                          .run = (transport_run_t)transport_run,
+                          .stop = (transport_stop_t)transport_stop,
+                          .close = (transport_close_t)transport_close},
                .recv = recv,
                .userdata = userdata},
       .socket = socket.value,
