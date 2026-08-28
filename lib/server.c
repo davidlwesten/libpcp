@@ -140,7 +140,7 @@ void pcp_client_recv(pcp_client_internal_t *client,
   auto const end = begin + PCP_CLIENT_MAX_LEASES;
   for (auto lease = begin; lease != end; ++lease) {
     if (lease->has_value) {
-      pcp_lease_update(&lease->value, client->transport, &result.value);
+      pcp_lease_on_response(&lease->value, client->transport, &result.value);
     }
   }
 }

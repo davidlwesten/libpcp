@@ -9,8 +9,8 @@
 #include <stdint.h>
 #include <string.h>
 
-static void active_state_timeout(pcp_client_internal_t *client,
-                                 pcp_lease_t *lease);
+static void active_state_on_timeout(pcp_client_internal_t *client,
+                                    pcp_lease_t *lease);
 
 static void active_state_create(pcp_lease_t *lease,
                                 transport_t *transport,
@@ -25,7 +25,7 @@ static void active_state_create(pcp_lease_t *lease,
   auto const timer =
       CALL(transport, add_timer, ttl,
            (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)active_state_timeout,
+               .fn = (transport_on_timer_callback_t)active_state_on_timeout,
                .userdata = lease});
 
   socket_address_t const external = (response->header.opcode == MAP)
@@ -61,7 +61,7 @@ static void error_state_on_send(pcp_client_internal_t *client,
   pcp_pending_state_create(lease, client->transport, lease->error.base.request);
 }
 
-static void error_state_timeout(transport_t *transport, pcp_lease_t *lease) {
+static void error_state_on_timeout(transport_t *transport, pcp_lease_t *lease) {
   const_view_t const packet = {.size = lease->error.base.request->size,
                                .data = lease->error.base.request->data};
   CALL(transport, send, packet,
@@ -82,7 +82,7 @@ static void error_state_create(pcp_lease_t *lease,
   transport_timer_t const timer =
       CALL(transport, add_timer, ttl,
            (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)error_state_timeout,
+               .fn = (transport_on_timer_callback_t)error_state_on_timeout,
                .userdata = lease});
 
   *lease = (pcp_lease_t){.error = {.base = lease->base, .timer = timer}};
@@ -97,9 +97,9 @@ static void failed_state_create(pcp_lease_t *lease,
   *lease = (pcp_lease_t){.failed = {.base = lease->base}};
 }
 
-static void pending_state_update(pcp_lease_t *lease,
-                                 transport_t *transport,
-                                 pcp_response_t const *response) {
+static void pending_state_on_response(pcp_lease_t *lease,
+                                      transport_t *transport,
+                                      pcp_response_t const *response) {
   const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
 
@@ -143,8 +143,8 @@ static time_t min_time_t(time_t lhs, time_t rhs) {
   return (lhs < rhs) ? lhs : rhs;
 }
 
-static void pending_state_timeout(pcp_client_internal_t *client,
-                                  pcp_lease_t *lease);
+static void pending_state_on_timeout(pcp_client_internal_t *client,
+                                     pcp_lease_t *lease);
 
 static void pending_state_on_send(pcp_client_internal_t *client,
                                   pcp_lease_t *lease,
@@ -157,12 +157,12 @@ static void pending_state_on_send(pcp_client_internal_t *client,
   lease->pending.rtx.timer =
       CALL(client->transport, add_timer, timeout,
            (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)pending_state_timeout,
+               .fn = (transport_on_timer_callback_t)pending_state_on_timeout,
                .userdata = lease});
 }
 
-static void pending_state_timeout(pcp_client_internal_t *client,
-                                  pcp_lease_t *lease) {
+static void pending_state_on_timeout(pcp_client_internal_t *client,
+                                     pcp_lease_t *lease) {
   time_t const max_duration = lease->pending.rtx.max_duration;
   time_t const now = time(nullptr);
   if (max_duration && max_duration < (now - lease->pending.start)) {
@@ -184,9 +184,9 @@ static void pending_state_timeout(pcp_client_internal_t *client,
            .userdata = lease});
 }
 
-static void active_state_update(pcp_lease_t * /*lease*/,
-                                transport_t * /*transport*/,
-                                pcp_response_t const * /*response*/) {}
+static void active_state_on_response(pcp_lease_t * /*lease*/,
+                                     transport_t * /*transport*/,
+                                     pcp_response_t const * /*response*/) {}
 
 static void active_state_on_send(pcp_client_internal_t *client,
                                  pcp_lease_t *lease,
@@ -197,8 +197,8 @@ static void active_state_on_send(pcp_client_internal_t *client,
                            lease->active.base.request);
 }
 
-static void active_state_timeout(pcp_client_internal_t *client,
-                                 pcp_lease_t *lease) {
+static void active_state_on_timeout(pcp_client_internal_t *client,
+                                    pcp_lease_t *lease) {
   auto const packet = lease->active.base.request;
   CALL(client->transport, send,
        (const_view_t){.size = packet->size, .data = packet->data},
@@ -207,29 +207,29 @@ static void active_state_timeout(pcp_client_internal_t *client,
            .userdata = lease});
 }
 
-static void error_state_update(pcp_lease_t * /*state*/,
-                               transport_t * /*transport*/,
-                               pcp_response_t const * /*response*/) {}
+static void error_state_on_response(pcp_lease_t * /*state*/,
+                                    transport_t * /*transport*/,
+                                    pcp_response_t const * /*response*/) {}
 
-static void failed_state_update(pcp_lease_t * /*state*/,
-                                transport_t * /*transport*/,
-                                pcp_response_t const * /*response*/) {}
+static void failed_state_on_response(pcp_lease_t * /*state*/,
+                                     transport_t * /*transport*/,
+                                     pcp_response_t const * /*response*/) {}
 
-void pcp_lease_update(pcp_lease_t *lease,
-                      transport_t *transport,
-                      pcp_response_t const *response) {
+void pcp_lease_on_response(pcp_lease_t *lease,
+                           transport_t *transport,
+                           pcp_response_t const *response) {
   switch (lease->base.state) {
   case PENDING:
-    pending_state_update(lease, transport, response);
+    pending_state_on_response(lease, transport, response);
     break;
   case ACTIVE:
-    active_state_update(lease, transport, response);
+    active_state_on_response(lease, transport, response);
     break;
   case ERROR:
-    error_state_update(lease, transport, response);
+    error_state_on_response(lease, transport, response);
     break;
   case FAILED:
-    failed_state_update(lease, transport, response);
+    failed_state_on_response(lease, transport, response);
     break;
   }
 }
@@ -243,11 +243,10 @@ void pcp_pending_state_create(pcp_lease_t *lease,
 
   static constexpr time_t PCP_IRT = 3;
   pcp_rtx_timer_t const timer = {
-      .timer =
-          CALL(transport, add_timer, PCP_IRT,
-               (transport_on_timer_t){
-                   .fn = (transport_on_timer_callback_t)pending_state_timeout,
-                   .userdata = lease}),
+      .timer = CALL(transport, add_timer, PCP_IRT,
+                    (transport_on_timer_t){.fn = (transport_on_timer_callback_t)
+                                               pending_state_on_timeout,
+                                           .userdata = lease}),
       .timeout = PCP_IRT,
       .max_time = PCP_MRT,
       .max_duration = PCP_MRD,
