@@ -140,6 +140,6 @@ void pcp_client_recv(pcp_client_internal_t *client,
   auto const begin = client->leases;
   auto const end = begin + array_size(client->leases);
   for (auto lease = begin; lease != end; ++lease) {
-    pcp_lease_update(lease, &result.value);
+    pcp_lease_update(lease, client->transport, &result.value);
   }
 }

@@ -37,7 +37,7 @@ static void pcp_client_on_send(pcp_client_internal_t *client,
 
   assert(result.value == packet->size);
 
-  pcp_lease_t const new_lease = pcp_lease_create_pending(
+  pcp_lease_t const new_lease = pcp_pending_lease_create(
       client->transport, packet, array_size(client->leases));
   array_push_back(client->leases, new_lease);
 }
