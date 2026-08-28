@@ -48,7 +48,7 @@ static void pcp_client_on_send(pcp_client_internal_t *client,
 
   assert(iter != end);
   iter->has_value = true;
-  pcp_pending_lease_create(&iter->value, client->transport, request);
+  pcp_pending_state_create(&iter->value, client->transport, request);
 }
 
 void pcp_client_send(pcp_client_internal_t *client,

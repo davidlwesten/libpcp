@@ -45,19 +45,25 @@ typedef struct pcp_lease_state_active {
 
 typedef struct pcp_lease_state_error {
   pcp_lease_state_base_t base;
+  transport_timer_t timer;
 } pcp_lease_state_error_t;
+
+typedef struct pcp_lease_state_failed {
+  pcp_lease_state_base_t base;
+} pcp_lease_state_failed_t;
 
 typedef union pcp_lease {
   pcp_lease_state_base_t base;
   pcp_lease_state_pending_t pending;
   pcp_lease_state_active_t active;
   pcp_lease_state_error_t error;
+  pcp_lease_state_failed_t failed;
 } pcp_lease_t;
 
 void pcp_lease_update(pcp_lease_t *mapping,
                       transport_t *transport,
                       pcp_response_t const *response);
 
-void pcp_pending_lease_create(pcp_lease_t *lease,
+void pcp_pending_state_create(pcp_lease_t *lease,
                               transport_t *transport,
                               packet_t *packet);

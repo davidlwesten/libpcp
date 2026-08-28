@@ -2,16 +2,17 @@
 
 #include "client.h"
 #include "packet.h"
+#include "pcp/result.h"
 #include "transport.h"
 
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
 
-static void active_lease_timeout(pcp_client_internal_t *client,
+static void active_state_timeout(pcp_client_internal_t *client,
                                  pcp_lease_t *lease);
 
-static void active_lease_create(pcp_lease_t *lease,
+static void active_state_create(pcp_lease_t *lease,
                                 transport_t *transport,
                                 pcp_response_t const *response) {
   assert(response->header.code == SUCCESS);
@@ -24,7 +25,7 @@ static void active_lease_create(pcp_lease_t *lease,
   auto const timer =
       CALL(transport, add_timer, ttl,
            (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)active_lease_timeout,
+               .fn = (transport_on_timer_callback_t)active_state_timeout,
                .userdata = lease});
 
   socket_address_t const external = (response->header.opcode == MAP)
@@ -53,7 +54,50 @@ static void active_lease_create(pcp_lease_t *lease,
   *lease = (pcp_lease_t){.active = {.base = lease->base, .timer = timer}};
 }
 
-static void pending_lease_update(pcp_lease_t *lease,
+static void error_state_on_send(pcp_client_internal_t *client,
+                                pcp_lease_t *lease,
+                                size_or_error_t result) {
+  assert(result.has_value);
+  pcp_pending_state_create(lease, client->transport, lease->error.base.request);
+}
+
+static void error_state_timeout(transport_t *transport, pcp_lease_t *lease) {
+  const_view_t const packet = {.size = lease->error.base.request->size,
+                               .data = lease->error.base.request->data};
+  CALL(transport, send, packet,
+       (transport_on_send_t){
+           .fn = (transport_on_send_callback_t)error_state_on_send,
+           .userdata = lease});
+}
+
+static void error_state_create(pcp_lease_t *lease,
+                               transport_t *transport,
+                               pcp_response_t const *response) {
+  assert(response->header.code == NETWORK_FAILURE ||
+         response->header.code == NO_RESOURCES ||
+         response->header.code == USER_EX_QUOTA ||
+         response->header.code == CANNOT_PROVIDE_EXTERNAL);
+
+  time_t const ttl = response->header.ttl;
+  transport_timer_t const timer =
+      CALL(transport, add_timer, ttl,
+           (transport_on_timer_t){
+               .fn = (transport_on_timer_callback_t)error_state_timeout,
+               .userdata = lease});
+
+  *lease = (pcp_lease_t){.error = {.base = lease->base, .timer = timer}};
+}
+
+static void failed_state_create(pcp_lease_t *lease,
+                                pcp_response_t const *response) {
+  assert(!(response->header.code == NETWORK_FAILURE ||
+           response->header.code == NO_RESOURCES ||
+           response->header.code == USER_EX_QUOTA ||
+           response->header.code == CANNOT_PROVIDE_EXTERNAL));
+  *lease = (pcp_lease_t){.failed = {.base = lease->base}};
+}
+
+static void pending_state_update(pcp_lease_t *lease,
                                  transport_t *transport,
                                  pcp_response_t const *response) {
   const_view_t const packet = {.size = lease->base.request->size,
@@ -65,6 +109,7 @@ static void pending_lease_update(pcp_lease_t *lease,
   }
 
   pcp_request_t const request = pcp_packet_read_request(header, packet);
+
   if (header.opcode == MAP && memcmp(&request.map.nonce, &response->map.nonce,
                                      sizeof(request.map.nonce)) != 0) {
     return;
@@ -78,10 +123,19 @@ static void pending_lease_update(pcp_lease_t *lease,
 
   CALL(transport, remove_timer, lease->pending.rtx.timer);
 
-  if (response->header.code == SUCCESS) {
-    active_lease_create(lease, transport, response);
-  } else {
-    *lease = (pcp_lease_t){.error = {.base = lease->pending.base}};
+  switch (response->header.code) {
+  case SUCCESS:
+    active_state_create(lease, transport, response);
+    break;
+  case NETWORK_FAILURE:
+  case NO_RESOURCES:
+  case USER_EX_QUOTA:
+  case CANNOT_PROVIDE_EXTERNAL:
+    error_state_create(lease, transport, response);
+    break;
+  default:
+    failed_state_create(lease, response);
+    break;
   }
 }
 
@@ -89,10 +143,10 @@ static time_t min_time_t(time_t lhs, time_t rhs) {
   return (lhs < rhs) ? lhs : rhs;
 }
 
-static void pending_lease_timeout(pcp_client_internal_t *client,
+static void pending_state_timeout(pcp_client_internal_t *client,
                                   pcp_lease_t *lease);
 
-static void pending_lease_on_send(pcp_client_internal_t *client,
+static void pending_state_on_send(pcp_client_internal_t *client,
                                   pcp_lease_t *lease,
                                   size_or_error_t result) {
   assert(result.has_value);
@@ -103,11 +157,11 @@ static void pending_lease_on_send(pcp_client_internal_t *client,
   lease->pending.rtx.timer =
       CALL(client->transport, add_timer, timeout,
            (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)pending_lease_timeout,
+               .fn = (transport_on_timer_callback_t)pending_state_timeout,
                .userdata = lease});
 }
 
-static void pending_lease_timeout(pcp_client_internal_t *client,
+static void pending_state_timeout(pcp_client_internal_t *client,
                                   pcp_lease_t *lease) {
   time_t const max_duration = lease->pending.rtx.max_duration;
   time_t const now = time(nullptr);
@@ -126,38 +180,38 @@ static void pending_lease_timeout(pcp_client_internal_t *client,
   CALL(client->transport, send,
        (const_view_t){.size = packet->size, .data = packet->data},
        (transport_on_send_t){
-           .fn = (transport_on_send_callback_t)pending_lease_on_send,
+           .fn = (transport_on_send_callback_t)pending_state_on_send,
            .userdata = lease});
 }
 
-static void active_lease_update(pcp_lease_t * /*lease*/,
+static void active_state_update(pcp_lease_t * /*lease*/,
                                 transport_t * /*transport*/,
                                 pcp_response_t const * /*response*/) {}
 
-static void active_lease_on_send(pcp_client_internal_t *client,
+static void active_state_on_send(pcp_client_internal_t *client,
                                  pcp_lease_t *lease,
                                  size_or_error_t result) {
   assert(result.has_value);
 
-  pcp_pending_lease_create(lease, client->transport,
+  pcp_pending_state_create(lease, client->transport,
                            lease->active.base.request);
 }
 
-static void active_lease_timeout(pcp_client_internal_t *client,
+static void active_state_timeout(pcp_client_internal_t *client,
                                  pcp_lease_t *lease) {
   auto const packet = lease->active.base.request;
   CALL(client->transport, send,
        (const_view_t){.size = packet->size, .data = packet->data},
        (transport_on_send_t){
-           .fn = (transport_on_send_callback_t)active_lease_on_send,
+           .fn = (transport_on_send_callback_t)active_state_on_send,
            .userdata = lease});
 }
 
-static void error_lease_update(pcp_lease_t * /*state*/,
+static void error_state_update(pcp_lease_t * /*state*/,
                                transport_t * /*transport*/,
                                pcp_response_t const * /*response*/) {}
 
-static void failed_lease_update(pcp_lease_t * /*state*/,
+static void failed_state_update(pcp_lease_t * /*state*/,
                                 transport_t * /*transport*/,
                                 pcp_response_t const * /*response*/) {}
 
@@ -166,21 +220,21 @@ void pcp_lease_update(pcp_lease_t *lease,
                       pcp_response_t const *response) {
   switch (lease->base.state) {
   case PENDING:
-    pending_lease_update(lease, transport, response);
+    pending_state_update(lease, transport, response);
     break;
   case ACTIVE:
-    active_lease_update(lease, transport, response);
+    active_state_update(lease, transport, response);
     break;
   case ERROR:
-    error_lease_update(lease, transport, response);
+    error_state_update(lease, transport, response);
     break;
   case FAILED:
-    failed_lease_update(lease, transport, response);
+    failed_state_update(lease, transport, response);
     break;
   }
 }
 
-void pcp_pending_lease_create(pcp_lease_t *lease,
+void pcp_pending_state_create(pcp_lease_t *lease,
                               transport_t *transport,
                               packet_t *request) {
   assert(lease);
@@ -192,7 +246,7 @@ void pcp_pending_lease_create(pcp_lease_t *lease,
       .timer =
           CALL(transport, add_timer, PCP_IRT,
                (transport_on_timer_t){
-                   .fn = (transport_on_timer_callback_t)pending_lease_timeout,
+                   .fn = (transport_on_timer_callback_t)pending_state_timeout,
                    .userdata = lease}),
       .timeout = PCP_IRT,
       .max_time = PCP_MRT,
