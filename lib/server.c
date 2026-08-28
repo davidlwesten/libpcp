@@ -1,6 +1,5 @@
 #include "server.h"
 
-#include "array.h"
 #include "client.h"
 #include "lease.h"
 #include "map.h"
@@ -138,8 +137,10 @@ void pcp_client_recv(pcp_client_internal_t *client,
   }
 
   auto const begin = client->leases;
-  auto const end = begin + array_size(client->leases);
+  auto const end = begin + PCP_CLIENT_MAX_LEASES;
   for (auto lease = begin; lease != end; ++lease) {
-    pcp_lease_update(lease, client->transport, &result.value);
+    if (lease->has_value) {
+      pcp_lease_update(&lease->value, client->transport, &result.value);
+    }
   }
 }

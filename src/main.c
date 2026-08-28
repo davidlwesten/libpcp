@@ -15,7 +15,8 @@ int main() {
   const socket_address_t peer = {.ip = ip_address_from_octets(192, 168, 8, 2),
                                  .port = 12000};
 
-  CALL(client, peer, UDP, internal, external, peer, 3600, 0, nullptr);
+  CALL(client, map, UDP, internal, external, 60, 0, nullptr);
+  CALL(client, peer, UDP, internal, external, peer, 90, 0, nullptr);
   CALL(client, run);
 
   pcp_client_destroy(client);

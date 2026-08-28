@@ -33,9 +33,6 @@ typedef struct transport_socket {
 static void send_(transport_socket_t const *self,
                   const_view_t src,
                   transport_on_send_t closure) {
-  fprintf(stdout, "send\n");
-  fflush(stdout);
-
   auto const result = CALL(&self->socket, send, src);
   if (closure.fn) {
     closure.fn(self->base.userdata, closure.userdata, result);

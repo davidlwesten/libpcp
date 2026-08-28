@@ -1,6 +1,5 @@
 #include <pcp/pcp.h>
 
-#include "array.h"
 #include "client.h"
 #include "map.h"
 #include "peer.h"
@@ -20,26 +19,35 @@ pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
 }
 
 static void pcp_client_on_send(pcp_client_internal_t *client,
-                               packet_t *packet,
+                               packet_t *request,
                                size_or_error_t result) {
   if (!result.has_value) {
     if (result.error == EAGAIN || result.error == EWOULDBLOCK ||
         result.error == EINTR || result.error == ENOBUFS) {
       CALL(client->transport, send,
-           (const_view_t){.size = packet->size, .data = packet->data},
+           (const_view_t){.size = request->size, .data = request->data},
            (transport_on_send_t){
                .fn = (transport_on_send_callback_t)pcp_client_on_send,
-               .userdata = packet});
+               .userdata = request});
       return;
     }
-    packet_destroy(packet);
+    packet_destroy(request);
   }
 
-  assert(result.value == packet->size);
+  assert(result.value == request->size);
 
-  pcp_lease_t const new_lease = pcp_pending_lease_create(
-      client->transport, packet, array_size(client->leases));
-  array_push_back(client->leases, new_lease);
+  auto const begin = client->leases;
+  auto const end = begin + sizeof(client->leases);
+  auto iter = begin;
+  for (; iter != end; ++iter) {
+    if (!iter->has_value) {
+      break;
+    }
+  }
+
+  assert(iter != end);
+  iter->has_value = true;
+  pcp_pending_lease_create(&iter->value, client->transport, request);
 }
 
 void pcp_client_send(pcp_client_internal_t *client,
@@ -76,7 +84,7 @@ pcp_client_t *pcp_client_create(char const *pcp_server) {
                                              .run = pcp_client_run},
                                     .server = {},
                                     .transport = transport.value,
-                                    .leases = array_create(pcp_lease_t)};
+                                    .leases = {}};
 
   return (pcp_client_t *)client;
 }

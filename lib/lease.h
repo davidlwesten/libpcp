@@ -11,7 +11,7 @@ typedef enum pcp_lease_state {
   PENDING,
   ACTIVE,
   ERROR,
-  FAILED,
+  FAILED
 } pcp_lease_state_t;
 
 typedef struct pcp_lease_state_base {
@@ -58,6 +58,6 @@ void pcp_lease_update(pcp_lease_t *mapping,
                       transport_t *transport,
                       pcp_response_t const *response);
 
-pcp_lease_t pcp_pending_lease_create(transport_t *transport,
-                                     packet_t *packet,
-                                     size_t index);
+void pcp_pending_lease_create(pcp_lease_t *lease,
+                              transport_t *transport,
+                              packet_t *packet);
