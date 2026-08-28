@@ -46,10 +46,11 @@ static void active_lease_create(pcp_lease_t *lease,
     request.peer.external = external;
   }
 
-  *lease = (pcp_lease_t){
-      .active = {.base = {.state = ACTIVE,
-                          .request = pcp_packet_write_request(&request)},
-                 .timer = timer}};
+  pcp_packet_write_request((view_t){.size = lease->base.request->size,
+                                    .data = lease->base.request->data},
+                           &request, 0, nullptr);
+
+  *lease = (pcp_lease_t){.active = {.base = lease->base, .timer = timer}};
 }
 
 static void pending_lease_update(pcp_lease_t *lease,

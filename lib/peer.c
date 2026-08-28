@@ -1,19 +1,17 @@
 #include <pcp/pcp.h>
 
 #include "client.h"
-#include "option.h"
 #include "packet.h"
 #include "peer.h"
 #include "request.h"
 #include "response.h"
 #include "transport.h"
+#include "types.h"
 
 static constexpr size_t PCP_PEER_REQUEST_BODY_SIZE = 56;
 
-packet_t *pcp_packet_write_peer_request(pcp_peer_request_t const *src) {
-  uint8_t buffer[PCP_PACKET_MAX_SIZE] = {0};
-  view_t dst = {.size = sizeof(buffer), .data = buffer};
-
+const_view_t pcp_packet_write_peer_request(view_t dst,
+                                           pcp_peer_request_t const *src) {
   pcp_packet_write_request_header(dst, src->header);
   pcp_packet_body_write_bytes(
       dst, 0, (const_view_t){sizeof(src->nonce.data), src->nonce.data});
@@ -24,28 +22,8 @@ packet_t *pcp_packet_write_peer_request(pcp_peer_request_t const *src) {
   pcp_packet_body_write_uint16_t(dst, 36, src->peer.port);
   pcp_packet_body_write_ip_address(dst, 40, src->peer.ip);
 
-  size_t offset = PCP_PEER_REQUEST_BODY_SIZE;
-
-  auto const begin = src->options;
-  auto const end = begin + src->options_count;
-  for (auto iter = begin; iter != end; ++iter) {
-    switch ((iter->code) & 0x7F) {
-    case THIRD_PARTY:
-      pcp_packet_body_write_third_party(dst, offset, &iter->third_party);
-      offset += PCP_THIRD_PARTY_OPTION_SIZE;
-      break;
-    case PREFER_FAILURE:
-      pcp_packet_body_write_prefer_failure(dst, offset, &iter->prefer_failure);
-      offset += PCP_PREFER_FAILURE_OPTION_SIZE;
-      break;
-    case FILTER:
-      pcp_packet_body_write_filter(dst, offset, &iter->filter);
-      offset += PCP_FILTER_OPTION_SIZE;
-      break;
-    }
-  }
-
-  return packet_create(PCP_HEADER_SIZE + offset, buffer);
+  return (const_view_t){.size = PCP_HEADER_SIZE + PCP_PEER_REQUEST_BODY_SIZE,
+                        .data = dst.data};
 }
 
 pcp_peer_request_t
@@ -65,9 +43,7 @@ pcp_packet_body_read_peer_request(pcp_request_header_t header,
       .external = {.ip = pcp_packet_body_read_ip_address(packet, 20),
                    .port = pcp_packet_body_read_uint16_t(packet, 18)},
       .peer = {.ip = pcp_packet_body_read_ip_address(packet, 40),
-               .port = pcp_packet_body_read_uint16_t(packet, 36)},
-      .options_count = 0,
-      .options = nullptr};
+               .port = pcp_packet_body_read_uint16_t(packet, 36)}};
 }
 
 pcp_peer_response_t
@@ -103,11 +79,9 @@ pcp_client_peer_request_internal(pcp_client_internal_t *client,
                .nonce = pcp_client_create_nonce(client),
                .protocol = protocol,
                .external = external,
-               .peer = peer,
-               .options_count = options_count,
-               .options = options}};
+               .peer = peer}};
 
-  pcp_client_send(client, &request);
+  pcp_client_send(client, &request, options_count, options);
 }
 
 void pcp_client_peer_request(pcp_client_t *client,

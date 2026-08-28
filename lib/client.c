@@ -2,6 +2,7 @@
 
 #include "client.h"
 #include "map.h"
+#include "packet.h"
 #include "peer.h"
 #include "server.h"
 #include "transport.h"
@@ -51,8 +52,15 @@ static void pcp_client_on_send(pcp_client_internal_t *client,
 }
 
 void pcp_client_send(pcp_client_internal_t *client,
-                     const pcp_request_t *request) {
-  auto const packet = pcp_packet_write_request(request);
+                     const pcp_request_t *request,
+                     size_t options_count,
+                     pcp_option_t const options[options_count]) {
+  uint8_t buffer[PCP_PACKET_MAX_SIZE] = {0};
+  auto const view =
+      pcp_packet_write_request((view_t){.size = sizeof(buffer), .data = buffer},
+                               request, options_count, options);
+
+  auto const packet = packet_create(view.size, view.data);
   if (packet) {
     CALL(client->transport, send,
          (const_view_t){.size = packet->size, .data = packet->data},

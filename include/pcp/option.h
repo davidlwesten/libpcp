@@ -32,3 +32,9 @@ typedef union pcp_option {
   pcp_option_prefer_failure_t prefer_failure;
   pcp_option_filter_t filter;
 } pcp_option_t;
+
+pcp_option_t pcp_option_create_third_party(bool required,
+                                           ip_address_t internal);
+pcp_option_t pcp_option_create_prefer_failure(bool required);
+pcp_option_t
+pcp_option_create_filter(bool required, socket_address_t peer, uint8_t prefix);

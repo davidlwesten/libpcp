@@ -1,6 +1,7 @@
 #include "packet.h"
 
 #include "map.h"
+#include "option.h"
 #include "peer.h"
 #include "request.h"
 
@@ -62,16 +63,40 @@ void pcp_packet_write_request_header(view_t dst, pcp_request_header_t header) {
   pcp_packet_write_ip_address(dst, 8, header.internal.ip);
 }
 
-packet_t *pcp_packet_write_request(const pcp_request_t *src) {
-  switch (src->header.opcode) {
-  case MAP:
-    return pcp_packet_write_map_request(&src->map);
-  case PEER:
-    return pcp_packet_write_peer_request(&src->peer);
-  default:
-    assert(false);
-    return nullptr;
+const_view_t
+pcp_packet_write_request(view_t dst,
+                         const pcp_request_t *src,
+                         size_t options_count,
+                         pcp_option_t const options[options_count]) {
+  assert(src->header.opcode == MAP || src->header.opcode == PEER);
+
+  const_view_t request = (src->header.opcode == MAP)
+                             ? pcp_packet_write_map_request(dst, &src->map)
+                             : pcp_packet_write_peer_request(dst, &src->peer);
+
+  auto const begin = options;
+  auto const end = options + options_count;
+  for (auto iter = begin; iter != end; ++iter) {
+    switch (iter->code & 0x7F) {
+    case THIRD_PARTY:
+      pcp_packet_body_write_third_party(dst, request.size - PCP_HEADER_SIZE,
+                                        &iter->third_party);
+      request.size += PCP_THIRD_PARTY_OPTION_SIZE;
+      break;
+    case PREFER_FAILURE:
+      pcp_packet_body_write_prefer_failure(dst, request.size - PCP_HEADER_SIZE,
+                                           &iter->prefer_failure);
+      request.size += PCP_PREFER_FAILURE_OPTION_SIZE;
+      break;
+    case FILTER:
+      pcp_packet_body_write_filter(dst, request.size - PCP_HEADER_SIZE,
+                                   &iter->filter);
+      request.size += PCP_FILTER_OPTION_SIZE;
+      break;
+    }
   }
+
+  return request;
 }
 
 void pcp_packet_body_write_bytes(view_t dst, size_t offset, const_view_t src) {

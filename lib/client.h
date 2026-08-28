@@ -22,4 +22,6 @@ typedef struct pcp_client_internal {
 
 pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t *client);
 void pcp_client_send(pcp_client_internal_t *client,
-                     pcp_request_t const *request);
+                     pcp_request_t const *request,
+                     size_t options_count,
+                     pcp_option_t const[options_count]);

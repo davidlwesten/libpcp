@@ -19,8 +19,6 @@ typedef struct pcp_map_request {
   pcp_nonce_t nonce;
   pcp_protocol_t protocol;
   socket_address_t external;
-  size_t options_count;
-  pcp_option_t const *options;
 } pcp_map_request_t;
 
 typedef struct pcp_peer_request {
@@ -29,8 +27,6 @@ typedef struct pcp_peer_request {
   pcp_protocol_t protocol;
   socket_address_t external;
   socket_address_t peer;
-  size_t options_count;
-  pcp_option_t const *options;
 } pcp_peer_request_t;
 
 typedef struct pcp_announce_request {

@@ -1,3 +1,4 @@
+#include <pcp/option.h>
 #include <pcp/pcp.h>
 
 #include <stdio.h>
@@ -15,8 +16,11 @@ int main() {
   const socket_address_t peer = {.ip = ip_address_from_octets(192, 168, 8, 2),
                                  .port = 12000};
 
-  CALL(client, map, UDP, internal, external, 60, 0, nullptr);
-  CALL(client, peer, UDP, internal, external, peer, 90, 0, nullptr);
+  pcp_option_t options[] = {pcp_option_create_prefer_failure(true)};
+  constexpr size_t options_count = sizeof(options) / sizeof(options[0]);
+
+  CALL(client, map, UDP, internal, external, 60, options_count, options);
+  CALL(client, peer, UDP, internal, external, peer, 90, options_count, options);
   CALL(client, run);
 
   pcp_client_destroy(client);

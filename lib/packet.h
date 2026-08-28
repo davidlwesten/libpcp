@@ -19,7 +19,11 @@ typedef struct packet {
 packet_t *packet_create(size_t size, uint8_t const src[size]);
 void packet_destroy(packet_t *packet);
 
-packet_t *pcp_packet_write_request(pcp_request_t const *src);
+const_view_t
+pcp_packet_write_request(view_t dst,
+                         pcp_request_t const *src,
+                         size_t options_count,
+                         pcp_option_t const options[options_count]);
 void pcp_packet_write_request_header(view_t dst, pcp_request_header_t header);
 void pcp_packet_body_write_bytes(view_t dst, size_t offset, const_view_t bytes);
 void pcp_packet_body_write_uint8_t(view_t dst, size_t offset, uint8_t value);
