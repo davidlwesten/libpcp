@@ -1,10 +1,12 @@
 #include <pcp/pcp.h>
 
 #include "client.h"
+#include "lease.h"
 #include "map.h"
 #include "packet.h"
 #include "peer.h"
 #include "server.h"
+#include "socket.h"
 #include "transport.h"
 
 #include <assert.h>
@@ -22,20 +24,16 @@ pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
 static void pcp_client_on_send(pcp_client_internal_t *client,
                                packet_t *request,
                                size_or_error_t result) {
-  if (!result.has_value) {
-    if (result.error == EAGAIN || result.error == EWOULDBLOCK ||
-        result.error == EINTR || result.error == ENOBUFS) {
-      CALL(client->transport, send,
-           (const_view_t){.size = request->size, .data = request->data},
-           (transport_on_send_t){
-               .fn = (transport_on_send_callback_t)pcp_client_on_send,
-               .userdata = request});
-      return;
-    }
-    packet_destroy(request);
+  if (!result.has_value &&
+      (result.error == EAGAIN || result.error == EWOULDBLOCK ||
+       result.error == EINTR || result.error == ENOBUFS)) {
+    CALL(client->transport, send,
+         (const_view_t){.size = request->size, .data = request->data},
+         (transport_on_send_t){
+             .fn = (transport_on_send_callback_t)pcp_client_on_send,
+             .userdata = request});
+    return;
   }
-
-  assert(result.value == request->size);
 
   auto const begin = client->leases;
   auto const end = begin + sizeof(client->leases);
@@ -48,7 +46,17 @@ static void pcp_client_on_send(pcp_client_internal_t *client,
 
   assert(iter != end);
   iter->has_value = true;
-  pcp_pending_state_create(&iter->value, client->transport, request);
+
+  if (!result.has_value) {
+    pcp_failed_state_create(
+        &iter->value,
+        (pcp_response_header_or_error_t){.has_value = false,
+                                         .error = result.error},
+        request);
+  } else {
+    assert(result.value == request->size);
+    pcp_pending_state_create(&iter->value, client->transport, request);
+  }
 }
 
 void pcp_client_send(pcp_client_internal_t *client,
