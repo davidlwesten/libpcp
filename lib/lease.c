@@ -16,9 +16,9 @@ static void error_state_create(pcp_lease_t *lease,
                                transport_t *transport,
                                pcp_response_t const *response);
 
-static void failed_state_on_response(pcp_lease_t *lease,
-                                     transport_t *transport,
-                                     pcp_response_t const *response) {
+static void failed_state_on_recv(pcp_lease_t *lease,
+                                 transport_t *transport,
+                                 pcp_response_t const *response) {
   const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
 
@@ -93,9 +93,9 @@ static void error_state_create(pcp_lease_t *lease,
                 .timer = timer}};
 }
 
-static void error_state_on_response(pcp_lease_t *lease,
-                                    transport_t *transport,
-                                    pcp_response_t const *response) {
+static void error_state_on_recv(pcp_lease_t *lease,
+                                transport_t *transport,
+                                pcp_response_t const *response) {
   assert(lease->base.request);
 
   const_view_t const packet = {.size = lease->base.request->size,
@@ -205,9 +205,9 @@ static void active_state_create(pcp_lease_t *lease,
                  .timer = timer}};
 }
 
-static void active_state_on_response(pcp_lease_t *lease,
-                                     transport_t *transport,
-                                     pcp_response_t const *response) {
+static void active_state_on_recv(pcp_lease_t *lease,
+                                 transport_t *transport,
+                                 pcp_response_t const *response) {
   assert(lease->base.request);
   const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
@@ -252,9 +252,9 @@ static void active_state_on_response(pcp_lease_t *lease,
   }
 }
 
-static void pending_state_on_response(pcp_lease_t *lease,
-                                      transport_t *transport,
-                                      pcp_response_t const *response) {
+static void pending_state_on_recv(pcp_lease_t *lease,
+                                  transport_t *transport,
+                                  pcp_response_t const *response) {
   assert(lease->base.request);
   const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
@@ -311,6 +311,7 @@ static void pending_state_on_send(pcp_client_internal_t *client,
                                   size_or_error_t result) {
   assert(result.has_value);
 
+  // todo: randomization factor
   time_t const timeout =
       min_time_t(2 * lease->pending.rtx.timeout, lease->pending.rtx.max_time);
   lease->pending.rtx.timeout = timeout;
@@ -356,21 +357,21 @@ static void pending_state_on_timeout(pcp_client_internal_t *client,
            .userdata = lease});
 }
 
-void pcp_lease_on_response(pcp_lease_t *lease,
-                           transport_t *transport,
-                           pcp_response_t const *response) {
+void pcp_lease_on_recv(pcp_lease_t *lease,
+                       transport_t *transport,
+                       pcp_response_t const *response) {
   switch (lease->base.state) {
   case PENDING:
-    pending_state_on_response(lease, transport, response);
+    pending_state_on_recv(lease, transport, response);
     break;
   case ACTIVE:
-    active_state_on_response(lease, transport, response);
+    active_state_on_recv(lease, transport, response);
     break;
   case ERROR:
-    error_state_on_response(lease, transport, response);
+    error_state_on_recv(lease, transport, response);
     break;
   case FAILED:
-    failed_state_on_response(lease, transport, response);
+    failed_state_on_recv(lease, transport, response);
     break;
   }
 }

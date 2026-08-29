@@ -2,7 +2,6 @@
 
 #include "client.h"
 #include "map.h"
-#include "option.h"
 #include "packet.h"
 #include "request.h"
 #include "response.h"

@@ -71,9 +71,9 @@ typedef union pcp_lease {
   pcp_lease_state_failed_t failed;
 } pcp_lease_t;
 
-void pcp_lease_on_response(pcp_lease_t *mapping,
-                           transport_t *transport,
-                           pcp_response_t const *response);
+void pcp_lease_on_recv(pcp_lease_t *mapping,
+                       transport_t *transport,
+                       pcp_response_t const *response);
 
 void pcp_pending_state_create(pcp_lease_t *lease,
                               transport_t *transport,

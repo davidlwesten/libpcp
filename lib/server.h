@@ -2,11 +2,14 @@
 
 #include <pcp/pcp.h>
 
-#include "transport.h"
+#include "types.h"
 
 typedef struct pcp_epoch {
-  time_t server;
-  time_t client;
+  bool has_value;
+  struct {
+    time_t server_time;
+    time_t client_time;
+  } value;
 } pcp_epoch_t;
 
 typedef struct pcp_server {
