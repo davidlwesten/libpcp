@@ -1,12 +1,9 @@
 #include <pcp/option.h>
 #include <pcp/pcp.h>
 
-#include <stdio.h>
-
 int main() {
   pcp_client_t *client = pcp_client_create("127.0.0.1");
   if (!client) {
-    fprintf(stderr, "pcp_client_create failed!\n");
     return 1;
   }
 
@@ -16,11 +13,11 @@ int main() {
   const socket_address_t peer = {.ip = ip_address_from_octets(192, 168, 8, 2),
                                  .port = 12000};
 
-  pcp_option_t options[] = {pcp_option_create_prefer_failure(true)};
+  pcp_option_t options[] = {pcp_option_create_prefer_failure(false)};
   constexpr size_t options_count = sizeof(options) / sizeof(options[0]);
 
   CALL(client, map, UDP, internal, external, 60, options_count, options);
-  CALL(client, peer, UDP, internal, external, peer, 90, options_count, options);
+  CALL(client, peer, UDP, internal, external, peer, 90, 0, nullptr);
   CALL(client, run);
 
   pcp_client_destroy(client);
