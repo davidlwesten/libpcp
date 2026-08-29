@@ -5,8 +5,15 @@
 #include "transport.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+
+static double rand_factor(double min, double max) {
+  double const scale = (double)rand() / RAND_MAX;
+  return min + (scale * (max - min));
+}
 
 static void active_state_create(pcp_lease_t *lease,
                                 transport_t *transport,
@@ -79,7 +86,7 @@ static void error_state_create(pcp_lease_t *lease,
          response->header.code == USER_EX_QUOTA ||
          response->header.code == CANNOT_PROVIDE_EXTERNAL);
 
-  transport_timeout_t const ttl = {.seconds = response->header.ttl};
+  transport_timeout_t const ttl = {.seconds = (double)response->header.ttl};
   transport_timer_t const timer =
       CALL(transport, add_timer, ttl,
            (transport_on_timer_t){
@@ -166,8 +173,9 @@ static void active_state_create(pcp_lease_t *lease,
   assert(response->header.code == SUCCESS);
   assert(response->header.opcode == MAP || response->header.opcode == PEER);
 
-  // todo: random ttl between 1/2 and 5/8 of lifetime
-  transport_timeout_t const ttl = {.seconds = response->header.ttl / 2};
+  double const factor = rand_factor(1.0 / 2.0, 5.0 / 8.0);
+  transport_timeout_t const ttl = {.seconds =
+                                       factor * (double)response->header.ttl};
   assert(ttl.seconds >= 0);
 
   auto const timer =
@@ -299,10 +307,6 @@ static void pending_state_on_recv(pcp_lease_t *lease,
   }
 }
 
-static time_t min_time_t(time_t lhs, time_t rhs) {
-  return (lhs < rhs) ? lhs : rhs;
-}
-
 static void pending_state_on_timeout(pcp_client_internal_t *client,
                                      pcp_lease_t *lease);
 
@@ -311,10 +315,12 @@ static void pending_state_on_send(pcp_client_internal_t *client,
                                   size_or_error_t result) {
   assert(result.has_value);
 
-  // todo: randomization factor
+  double const doubled = 2.0 * lease->pending.rtx.timeout.seconds;
+  double const capped = lease->pending.rtx.max_time
+                            ? fmin(doubled, (double)lease->pending.rtx.max_time)
+                            : doubled;
   transport_timeout_t const timeout = {
-      .seconds = min_time_t(2 * lease->pending.rtx.timeout.seconds,
-                            lease->pending.rtx.max_time)};
+      .seconds = (1.0 + rand_factor(-0.1, 0.1)) * capped};
   lease->pending.rtx.timeout = timeout;
   lease->pending.rtx.timer =
       CALL(client->transport, add_timer, timeout,
@@ -387,7 +393,9 @@ void pcp_pending_state_create(pcp_lease_t *lease,
   static constexpr time_t PCP_IRT = 3;
   pcp_rtx_timer_t const timer = {
       .timer = CALL(
-          transport, add_timer, (transport_timeout_t){.seconds = PCP_IRT},
+          transport, add_timer,
+          (transport_timeout_t){.seconds =
+                                    (1 + rand_factor(-0.1, 0.1)) * PCP_IRT},
           (transport_on_timer_t){
               .fn = (transport_on_timer_callback_t)pending_state_on_timeout,
               .userdata = lease}),

@@ -51,4 +51,9 @@ target_sources(pcp
         ${CMAKE_CURRENT_SOURCE_DIR}/transport.h
         ${CMAKE_CURRENT_SOURCE_DIR}/types.h)
 
+find_library(MATH_LIBRARY m)
+if(MATH_LIBRARY)
+  target_link_libraries(pcp PRIVATE ${MATH_LIBRARY})
+endif()
+
 target_link_libraries(pcp PRIVATE project_warnings)

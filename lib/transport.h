@@ -24,7 +24,7 @@ typedef struct transport_on_timer {
 typedef uint32_t transport_timer_t;
 
 typedef struct transport_timeout {
-  time_t seconds;
+  double seconds;
 } transport_timeout_t;
 
 typedef void (*transport_run_t)(transport_t const *self);

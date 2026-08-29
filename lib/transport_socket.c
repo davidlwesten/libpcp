@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <malloc.h>
+#include <math.h>
 
 #include <sys/select.h>
 
@@ -20,7 +21,7 @@ typedef struct transport_base {
 
 typedef struct transport_socket_timer {
   uint32_t id;
-  time_t expiration;
+  double expiration;
   transport_on_timer_t action;
 } transport_socket_timer_t;
 
@@ -41,7 +42,7 @@ static void send_(transport_socket_t const *self,
 
 static int min_timer_(transport_socket_timer_t const *lhs,
                       transport_socket_timer_t const *rhs) {
-  return (int)lhs->expiration - (int)rhs->expiration;
+  return (int)(lhs->expiration - rhs->expiration);
 }
 
 static void transport_remove_timer(transport_socket_t *transport,
@@ -70,15 +71,11 @@ static transport_timer_t transport_add_timer(transport_socket_t *self,
 
   static uint32_t NEXT_ID = 0;
   transport_socket_timer_t const timer = {.id = NEXT_ID++,
-                                          .expiration =
-                                              time(nullptr) + ttl.seconds,
+                                          .expiration = (double)time(nullptr) +
+                                                        ttl.seconds,
                                           .action = action};
   array_heap_push(self->timers, timer, (heap_compare_t)min_timer_);
   return timer.id;
-}
-
-static time_t max_time_t(time_t lhs, time_t rhs) {
-  return lhs > rhs ? lhs : rhs;
 }
 
 static void transport_run(transport_socket_t *self) {
@@ -88,12 +85,15 @@ static void transport_run(transport_socket_t *self) {
     fd_set readfds = {0};
     FD_SET(self->socket.fd, &readfds);
 
-    time_t now = time(nullptr);
+    double now = (double)time(nullptr);
 
     struct timeval timeval = {0};
     struct timeval *timeout = nullptr;
     if (array_size(self->timers)) {
-      timeval.tv_sec = max_time_t(0, self->timers->expiration - now);
+      double const delta = fmax(0.0, self->timers->expiration - now);
+      timeval.tv_sec = (time_t)delta;
+      timeval.tv_usec =
+          (suseconds_t)((delta - (double)timeval.tv_sec) * 1000000.0);
       timeout = &timeval;
     }
 
@@ -104,9 +104,10 @@ static void transport_run(transport_socket_t *self) {
     case -1:
       assert(errno == EINTR);
     case 0: // timeout
-      now = time(nullptr);
+      now = (double)time(nullptr);
 
-      while (array_size(self->timers) && (self->timers->expiration < now)) {
+      while (array_size(self->timers) &&
+             isless(self->timers->expiration, now)) {
         transport_socket_timer_t timer;
         array_heap_pop(self->timers, &timer, (heap_compare_t)min_timer_);
         timer.action.fn(self->base.userdata, timer.action.userdata);
