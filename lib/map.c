@@ -33,7 +33,7 @@ pcp_map_request_t pcp_packet_body_read_map_request(pcp_request_header_t header,
                  .ttl = header.ttl,
                  .internal = {.ip = header.internal.ip,
                               .port =
-                                  pcp_packet_body_read_uint8_t(packet, 16)}},
+                                  pcp_packet_body_read_uint16_t(packet, 16)}},
       .nonce = nonce,
       .protocol = pcp_packet_body_read_uint8_t(packet, 12),
       .external = {.ip = pcp_packet_body_read_ip_address(packet, 20),
