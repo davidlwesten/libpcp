@@ -79,7 +79,7 @@ static void error_state_create(pcp_lease_t *lease,
          response->header.code == USER_EX_QUOTA ||
          response->header.code == CANNOT_PROVIDE_EXTERNAL);
 
-  time_t const ttl = response->header.ttl;
+  transport_timeout_t const ttl = {.seconds = response->header.ttl};
   transport_timer_t const timer =
       CALL(transport, add_timer, ttl,
            (transport_on_timer_t){
@@ -167,8 +167,8 @@ static void active_state_create(pcp_lease_t *lease,
   assert(response->header.opcode == MAP || response->header.opcode == PEER);
 
   // todo: random ttl between 1/2 and 5/8 of lifetime
-  time_t const ttl = response->header.ttl / 2;
-  assert(ttl >= 0);
+  transport_timeout_t const ttl = {.seconds = response->header.ttl / 2};
+  assert(ttl.seconds >= 0);
 
   auto const timer =
       CALL(transport, add_timer, ttl,
@@ -312,8 +312,9 @@ static void pending_state_on_send(pcp_client_internal_t *client,
   assert(result.has_value);
 
   // todo: randomization factor
-  time_t const timeout =
-      min_time_t(2 * lease->pending.rtx.timeout, lease->pending.rtx.max_time);
+  transport_timeout_t const timeout = {
+      .seconds = min_time_t(2 * lease->pending.rtx.timeout.seconds,
+                            lease->pending.rtx.max_time)};
   lease->pending.rtx.timeout = timeout;
   lease->pending.rtx.timer =
       CALL(client->transport, add_timer, timeout,
@@ -385,11 +386,12 @@ void pcp_pending_state_create(pcp_lease_t *lease,
 
   static constexpr time_t PCP_IRT = 3;
   pcp_rtx_timer_t const timer = {
-      .timer = CALL(transport, add_timer, PCP_IRT,
-                    (transport_on_timer_t){.fn = (transport_on_timer_callback_t)
-                                               pending_state_on_timeout,
-                                           .userdata = lease}),
-      .timeout = PCP_IRT,
+      .timer = CALL(
+          transport, add_timer, (transport_timeout_t){.seconds = PCP_IRT},
+          (transport_on_timer_t){
+              .fn = (transport_on_timer_callback_t)pending_state_on_timeout,
+              .userdata = lease}),
+      .timeout = {.seconds = PCP_IRT},
       .max_time = PCP_MRT,
       .max_duration = PCP_MRD,
       .count = 1,

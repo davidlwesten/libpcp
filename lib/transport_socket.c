@@ -20,7 +20,7 @@ typedef struct transport_base {
 
 typedef struct transport_socket_timer {
   uint32_t id;
-  time_t ttl;
+  time_t expiration;
   transport_on_timer_t action;
 } transport_socket_timer_t;
 
@@ -41,7 +41,7 @@ static void send_(transport_socket_t const *self,
 
 static int min_timer_(transport_socket_timer_t const *lhs,
                       transport_socket_timer_t const *rhs) {
-  return (int)lhs->ttl - (int)rhs->ttl;
+  return (int)lhs->expiration - (int)rhs->expiration;
 }
 
 static void transport_remove_timer(transport_socket_t *transport,
@@ -63,14 +63,15 @@ static void transport_remove_timer(transport_socket_t *transport,
 }
 
 static transport_timer_t transport_add_timer(transport_socket_t *self,
-                                             time_t ttl,
+                                             transport_timeout_t ttl,
                                              transport_on_timer_t action) {
   assert(self);
-  assert(ttl > 0);
+  assert(ttl.seconds > 0);
 
   static uint32_t NEXT_ID = 0;
   transport_socket_timer_t const timer = {.id = NEXT_ID++,
-                                          .ttl = time(nullptr) + ttl,
+                                          .expiration =
+                                              time(nullptr) + ttl.seconds,
                                           .action = action};
   array_heap_push(self->timers, timer, (heap_compare_t)min_timer_);
   return timer.id;
@@ -92,7 +93,7 @@ static void transport_run(transport_socket_t *self) {
     struct timeval timeval = {0};
     struct timeval *timeout = nullptr;
     if (array_size(self->timers)) {
-      timeval.tv_sec = max_time_t(0, self->timers->ttl - now);
+      timeval.tv_sec = max_time_t(0, self->timers->expiration - now);
       timeout = &timeval;
     }
 
@@ -105,7 +106,7 @@ static void transport_run(transport_socket_t *self) {
     case 0: // timeout
       now = time(nullptr);
 
-      while (array_size(self->timers) && (self->timers->ttl < now)) {
+      while (array_size(self->timers) && (self->timers->expiration < now)) {
         transport_socket_timer_t timer;
         array_heap_pop(self->timers, &timer, (heap_compare_t)min_timer_);
         timer.action.fn(self->base.userdata, timer.action.userdata);

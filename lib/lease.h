@@ -25,7 +25,7 @@ constexpr uint8_t PCP_MRC = 0;
 
 typedef struct pcp_rtx_timer {
   transport_timer_t timer;
-  time_t timeout;
+  transport_timeout_t timeout;
   time_t max_time;
   time_t max_duration;
   uint8_t count;
