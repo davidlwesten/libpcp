@@ -10,6 +10,7 @@
 typedef enum pcp_lease_state {
   PENDING,
   ACTIVE,
+  RENEWING,
   ERROR,
   FAILED
 } pcp_lease_state_t;
@@ -19,14 +20,10 @@ typedef struct pcp_lease_state_base {
   packet_t *request;
 } pcp_lease_state_base_t;
 
-constexpr time_t PCP_MRT = 1024;
-constexpr time_t PCP_MRD = 0;
-constexpr uint8_t PCP_MRC = 0;
-
 typedef struct pcp_rtx_timer {
   transport_timer_t timer;
   transport_timeout_t timeout;
-  time_t max_time;
+  time_t max_timeout;
   time_t max_duration;
   uint8_t count;
   uint8_t max_count;
@@ -34,7 +31,6 @@ typedef struct pcp_rtx_timer {
 
 typedef struct pcp_lease_state_pending {
   pcp_lease_state_base_t base;
-  time_t start;
   pcp_rtx_timer_t rtx;
 } pcp_lease_state_pending_t;
 
@@ -42,7 +38,14 @@ typedef struct pcp_lease_state_active {
   pcp_lease_state_base_t base;
   pcp_response_header_t header;
   transport_timer_t timer;
+  time_t expiration;
 } pcp_lease_state_active_t;
+
+typedef struct pcp_lease_state_renewing {
+  pcp_lease_state_base_t base;
+  pcp_rtx_timer_t rtx;
+  time_t expiration;
+} pcp_lease_state_renewing_t;
 
 typedef struct pcp_lease_state_error {
   pcp_lease_state_base_t base;
@@ -67,6 +70,7 @@ typedef union pcp_lease {
   pcp_lease_state_base_t base;
   pcp_lease_state_pending_t pending;
   pcp_lease_state_active_t active;
+  pcp_lease_state_renewing_t renewing;
   pcp_lease_state_error_t error;
   pcp_lease_state_failed_t failed;
 } pcp_lease_t;

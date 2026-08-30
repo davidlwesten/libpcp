@@ -10,8 +10,9 @@ int main() {
   constexpr port_t internal = 12000;
   constexpr socket_address_t external = {.ip = ip_address_any_v6,
                                          .port = 12000};
-  const socket_address_t peer = {.ip = ip_address_from_octets(192, 168, 8, 2),
-                                 .port = 12000};
+  [[maybe_unused]] const socket_address_t peer = {
+      .ip = ip_address_from_octets(192, 168, 8, 2),
+      .port = 12000};
 
   pcp_option_t options[] = {pcp_option_create_prefer_failure(false)};
   constexpr size_t options_count = sizeof(options) / sizeof(options[0]);
