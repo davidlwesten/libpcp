@@ -168,13 +168,11 @@ void pcp_client_recv(pcp_client_internal_t *client,
     return;
   }
 
-  struct timespec time = {0};
-  clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time);
-
   pcp_epoch_t const previous = client->server.epoch;
-  client->server.epoch = (pcp_epoch_t){
-      .has_value = true,
-      .value = {.server_time = header.value.epoch, .client_time = time.tv_sec}};
+  client->server.epoch =
+      (pcp_epoch_t){.has_value = true,
+                    .value = {.server_time = header.value.epoch,
+                              .client_time = CALL(client, time)}};
 
   // todo: server lost state, renew active mappings
   [[maybe_unused]] bool const server_lost_state =

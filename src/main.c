@@ -17,8 +17,8 @@ int main() {
   pcp_option_t options[] = {pcp_option_create_prefer_failure(false)};
   constexpr size_t options_count = sizeof(options) / sizeof(options[0]);
 
-  CALL(client, map, UDP, internal, external, 60, options_count, options);
-  CALL(client, peer, UDP, internal, external, peer, 90, 0, nullptr);
+  CALL(client, map, UDP, internal, external, 15, options_count, options);
+  // CALL(client, peer, UDP, internal, external, peer, 90, 0, nullptr);
   CALL(client, run);
 
   pcp_client_destroy(client);

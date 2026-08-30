@@ -9,8 +9,20 @@
 #include "socket.h"
 #include "transport.h"
 
+#define _GNU_SOURCE
 #include <assert.h>
 #include <malloc.h>
+
+static time_t pcp_client_time(pcp_client_internal_t * /*self*/) {
+#if !defined(NDEBUG)
+  constexpr auto clock_id = CLOCK_THREAD_CPUTIME_ID;
+#else
+  constexpr auto clock_id = CLOCK_BOOTTIME;
+#endif
+  struct timespec time = {0};
+  assert(0 == clock_gettime(clock_id, &time));
+  return time.tv_sec;
+}
 
 static void pcp_client_run(pcp_client_t *client) {
   auto const internal = (pcp_client_internal_t *)client;
@@ -55,7 +67,7 @@ static void pcp_client_on_send(pcp_client_internal_t *client,
         request);
   } else {
     assert(result.value == request->size);
-    pcp_pending_state_create(&iter->value, client->transport, request);
+    pcp_pending_state_create(&iter->value, client, request);
   }
 }
 
@@ -100,7 +112,8 @@ pcp_client_t *pcp_client_create(char const *pcp_server) {
                                              .run = pcp_client_run},
                                     .server = {},
                                     .transport = transport.value,
-                                    .leases = {}};
+                                    .leases = {},
+                                    .time = pcp_client_time};
 
   return (pcp_client_t *)client;
 }

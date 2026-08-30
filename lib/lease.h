@@ -79,8 +79,10 @@ void pcp_lease_on_recv(pcp_lease_t *mapping,
                        transport_t *transport,
                        pcp_response_t const *response);
 
+typedef struct pcp_client_internal pcp_client_internal_t;
+
 void pcp_pending_state_create(pcp_lease_t *lease,
-                              transport_t *transport,
+                              pcp_client_internal_t *client,
                               packet_t *packet);
 
 void pcp_failed_state_create(pcp_lease_t *lease,

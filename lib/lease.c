@@ -23,7 +23,8 @@ static void error_state_create(pcp_lease_t *lease,
                                transport_t *transport,
                                pcp_response_t const *response);
 
-static void renewing_state_create(pcp_lease_t *lease, transport_t *transport);
+static void renewing_state_create(pcp_lease_t *lease,
+                                  pcp_client_internal_t *client);
 
 static void failed_state_on_recv(pcp_lease_t *lease,
                                  transport_t *transport,
@@ -69,7 +70,7 @@ static void error_state_on_send(pcp_client_internal_t *client,
                                 pcp_lease_t *lease,
                                 size_or_error_t result) {
   assert(result.has_value); // todo: retry?
-  pcp_pending_state_create(lease, client->transport, lease->error.base.request);
+  pcp_pending_state_create(lease, client, lease->error.base.request);
 }
 
 static void error_state_on_timeout(transport_t *transport, pcp_lease_t *lease) {
@@ -155,7 +156,7 @@ static void active_state_on_send(pcp_client_internal_t *client,
                                  pcp_lease_t *lease,
                                  size_or_error_t result) {
   assert(result.has_value); // todo: retry?
-  renewing_state_create(lease, client->transport);
+  renewing_state_create(lease, client);
 }
 
 static void active_state_on_timeout(pcp_client_internal_t *client,
@@ -319,7 +320,7 @@ static void renewing_state_on_send(pcp_client_internal_t *client,
   assert(result.has_value); // todo: retry?
   assert(lease->base.state == RENEWING);
 
-  time_t const now = time(nullptr);
+  time_t const now = CALL(client, time);
   time_t const remaining = lease->renewing.expiration - now;
 
   uint8_t const attempt = ++lease->renewing.rtx.count;
@@ -357,10 +358,14 @@ static void renewing_state_on_timeout(pcp_client_internal_t *client,
            .userdata = lease});
 }
 
-static void renewing_state_create(pcp_lease_t *lease, transport_t *transport) {
+static void renewing_state_create(pcp_lease_t *lease,
+                                  pcp_client_internal_t *client) {
+  assert(lease);
   assert(lease->base.state == ACTIVE);
+  assert(client);
+  assert(client->transport);
 
-  time_t const now = time(nullptr);
+  time_t const now = CALL(client, time);
   time_t const expiration = lease->active.expiration;
   time_t const remaining = expiration - now;
 
@@ -380,7 +385,7 @@ static void renewing_state_create(pcp_lease_t *lease, transport_t *transport) {
 
   rtx.timeout.seconds = fmax(factor * (double)remaining, 4.0);
   rtx.timer =
-      CALL(transport, add_timer, rtx.timeout,
+      CALL(client->transport, add_timer, rtx.timeout,
            (transport_on_timer_t){
                .fn = (transport_on_timer_callback_t)renewing_state_on_timeout,
                .userdata = lease});
@@ -469,7 +474,7 @@ static void pending_state_on_timeout(pcp_client_internal_t *client,
   assert(lease->base.request);
 
   time_t const max_duration = lease->pending.rtx.max_duration;
-  time_t const now = time(nullptr);
+  time_t const now = CALL(client, time);
   if (max_duration && now < max_duration) {
     pcp_failed_state_create(
         lease,
@@ -520,10 +525,11 @@ void pcp_lease_on_recv(pcp_lease_t *lease,
 }
 
 void pcp_pending_state_create(pcp_lease_t *lease,
-                              transport_t *transport,
+                              pcp_client_internal_t *client,
                               packet_t *request) {
   assert(lease);
-  assert(transport);
+  assert(client);
+  assert(client->transport);
   assert(request);
 
   static constexpr time_t PCP_IRT = 3;
@@ -534,13 +540,13 @@ void pcp_pending_state_create(pcp_lease_t *lease,
   transport_timeout_t const timeout = {
       .seconds = (1 + rand_in_range(-0.1, 0.1)) * PCP_IRT};
   pcp_rtx_timer_t const rtx = {
-      .timer = CALL(transport, add_timer, timeout,
+      .timer = CALL(client->transport, add_timer, timeout,
                     (transport_on_timer_t){.fn = (transport_on_timer_callback_t)
                                                pending_state_on_timeout,
                                            .userdata = lease}),
       .timeout = timeout,
       .max_timeout = PCP_MRT,
-      .max_duration = (PCP_MRD) ? PCP_MRD + time(nullptr) : PCP_MRD,
+      .max_duration = (PCP_MRD) ? PCP_MRD + CALL(client, time) : PCP_MRD,
       .count = 1,
       .max_count = PCP_MRC};
   *lease = (pcp_lease_t){
