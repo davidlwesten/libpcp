@@ -29,7 +29,7 @@ int main() {
 
   CALL(&client, map, UDP, internal, external, 15, options_count, options);
   // CALL(client, peer, UDP, internal, external, peer, 90, 0, nullptr);
-  CALL(&client, run);
+  transport_socket_run(&transport_socket, client.data);
 
   pcp_client_destroy(&client);
   CALL(&transport, close);

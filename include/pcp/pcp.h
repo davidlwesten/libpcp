@@ -27,7 +27,6 @@ typedef struct pcp_client {
                time_t ttl,
                size_t option_count,
                const pcp_option_t[option_count]);
-  void (*run)(void *data);
 } pcp_client_t;
 
 typedef struct pcp_client_result {

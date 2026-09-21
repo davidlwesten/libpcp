@@ -71,7 +71,7 @@ transport_add_timer(void *data,
   return (pcp_transport_timer_result_t){.has_value = false, .error = ENOSPC};
 }
 
-static void transport_run(transport_socket_t *self, void *context) {
+void transport_socket_run(transport_socket_t *self, void *context) {
   uint8_t packet_data[1100] = {0};
 
   for (;;) {
@@ -174,7 +174,6 @@ pcp_transport_t transport_socket_interface(transport_socket_t *transport) {
       .send = (pcp_transport_send_t)send_,
       .add_timer = (pcp_transport_add_timer_t)transport_add_timer,
       .remove_timer = (pcp_transport_remove_timer_t)transport_remove_timer,
-      .run = (pcp_transport_run_t)transport_run,
       .stop = (pcp_transport_stop_t)transport_stop,
       .close = (pcp_transport_close_t)transport_close};
 }

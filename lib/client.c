@@ -22,10 +22,6 @@ static time_t pcp_client_time() {
   return time.tv_sec;
 }
 
-static void pcp_client_run(pcp_client_internal_t *internal) {
-  CALL(&internal->transport, run, internal);
-}
-
 pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
   return (pcp_nonce_t){.data = {}};
 }
@@ -90,7 +86,7 @@ void pcp_client_send(pcp_client_internal_t *client,
 
 pcp_client_result_t pcp_client_create(pcp_transport_t transport) {
   if (!transport.local || !transport.remote || !transport.send ||
-      !transport.add_timer || !transport.remove_timer || !transport.run) {
+      !transport.add_timer || !transport.remove_timer) {
     return (pcp_client_result_t){.has_value = false, .error = EINVAL};
   }
 
@@ -113,8 +109,7 @@ pcp_client_result_t pcp_client_create(pcp_transport_t transport) {
                 .peer = (void (*)(void *, pcp_protocol_t, port_t,
                                   socket_address_t, socket_address_t, time_t,
                                   size_t, pcp_option_t const[]))
-                    pcp_client_peer_request,
-                .run = (void (*)(void *))pcp_client_run}};
+                    pcp_client_peer_request}};
 }
 
 void pcp_client_destroy(pcp_client_t *client) {

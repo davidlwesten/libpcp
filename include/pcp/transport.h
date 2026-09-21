@@ -61,7 +61,6 @@ typedef struct pcp_transport_timeout {
 } pcp_transport_timeout_t;
 
 typedef socket_address_t (*pcp_transport_endpoint_t)(void *data);
-typedef void (*pcp_transport_run_t)(void *data, void *context);
 typedef void (*pcp_transport_stop_t)(void *data);
 typedef void (*pcp_transport_close_t)(void *data);
 typedef void (*pcp_transport_send_t)(void *data,
@@ -81,7 +80,6 @@ struct pcp_transport {
   pcp_transport_send_t send;
   pcp_transport_add_timer_t add_timer;
   pcp_transport_remove_timer_t remove_timer;
-  pcp_transport_run_t run;
   pcp_transport_stop_t stop;
   pcp_transport_close_t close;
 };

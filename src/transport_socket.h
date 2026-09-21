@@ -30,3 +30,4 @@ typedef struct transport_socket_result {
 
 transport_socket_result_t transport_socket_connect(const char *server);
 pcp_transport_t transport_socket_interface(transport_socket_t *transport);
+void transport_socket_run(transport_socket_t *transport, void *context);
