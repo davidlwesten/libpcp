@@ -2,7 +2,6 @@
 
 #include "packet.h"
 #include "response.h"
-#include "transport.h"
 
 #include <inttypes.h>
 #include <time.h>
@@ -15,14 +14,17 @@ typedef enum pcp_lease_state {
   FAILED
 } pcp_lease_state_t;
 
+typedef struct pcp_client_internal pcp_client_internal_t;
+
 typedef struct pcp_lease_state_base {
   pcp_lease_state_t state;
+  pcp_client_internal_t *client;
   packet_t *request;
 } pcp_lease_state_base_t;
 
 typedef struct pcp_rtx_timer {
-  transport_timer_t timer;
-  transport_timeout_t timeout;
+  pcp_transport_timer_t timer;
+  pcp_transport_timeout_t timeout;
   time_t max_timeout;
   time_t max_duration;
   uint8_t count;
@@ -37,7 +39,7 @@ typedef struct pcp_lease_state_pending {
 typedef struct pcp_lease_state_active {
   pcp_lease_state_base_t base;
   pcp_response_header_t header;
-  transport_timer_t timer;
+  pcp_transport_timer_t timer;
   time_t expiration;
 } pcp_lease_state_active_t;
 
@@ -50,7 +52,7 @@ typedef struct pcp_lease_state_renewing {
 typedef struct pcp_lease_state_error {
   pcp_lease_state_base_t base;
   pcp_response_header_t header;
-  transport_timer_t timer;
+  pcp_transport_timer_t timer;
 } pcp_lease_state_error_t;
 
 typedef struct pcp_response_header_or_error {
@@ -76,10 +78,8 @@ typedef union pcp_lease {
 } pcp_lease_t;
 
 void pcp_lease_on_recv(pcp_lease_t *mapping,
-                       transport_t *transport,
+                       pcp_transport_t *transport,
                        pcp_response_t const *response);
-
-typedef struct pcp_client_internal pcp_client_internal_t;
 
 void pcp_pending_state_create(pcp_lease_t *lease,
                               pcp_client_internal_t *client,

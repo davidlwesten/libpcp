@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static errno_t gai_error_to_errno(int gai_error) {
+static int gai_error_to_errno(int gai_error) {
   switch (gai_error) {
 #if __USE_GNU
   case EAI_ADDRFAMILY:
@@ -45,24 +45,28 @@ static errno_t gai_error_to_errno(int gai_error) {
   }
 }
 
-static size_or_error_t socket_send(const socket_t *self, const_view_t src) {
+static pcp_transport_size_or_error_t
+socket_send(const socket_t *self, pcp_transport_const_view_t src) {
   assert(self);
   auto const result = send(self->fd, src.data, src.size, 0);
   if (-1 == result) {
-    return (size_or_error_t){.has_value = false, .error = errno};
+    return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
   }
 
-  return (size_or_error_t){.has_value = true, .value = (size_t)result};
+  return (pcp_transport_size_or_error_t){.has_value = true,
+                                         .value = (size_t)result};
 }
 
-static size_or_error_t socket_recv(const socket_t *self, view_t dst) {
+static pcp_transport_size_or_error_t
+socket_recv(const socket_t *self, pcp_transport_view_t dst) {
   assert(self);
   auto const result = recv(self->fd, dst.data, dst.size, 0);
   if (-1 == result) {
-    return (size_or_error_t){.has_value = false, .error = errno};
+    return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
   }
 
-  return (size_or_error_t){.has_value = true, .value = (size_t)result};
+  return (pcp_transport_size_or_error_t){.has_value = true,
+                                         .value = (size_t)result};
 }
 
 static void_or_error_t socket_shutdown(socket_t *self) {

@@ -56,7 +56,7 @@ read_and_validate_announce_response(pcp_response_header_t header) {
 
 static pcp_response_or_error_t
 read_and_validate_map_response(pcp_response_header_t header,
-                               const_view_t packet) {
+                               pcp_transport_const_view_t packet) {
   pcp_response_t const response = {
       .map = pcp_packet_body_read_map_response(header, packet)};
 
@@ -69,7 +69,7 @@ read_and_validate_map_response(pcp_response_header_t header,
 
 static pcp_response_or_error_t
 read_and_validate_peer_response(pcp_response_header_t header,
-                                const_view_t packet) {
+                                pcp_transport_const_view_t packet) {
   pcp_response_t const response = {
       .peer = pcp_packet_body_read_peer_response(header, packet)};
 
@@ -86,7 +86,7 @@ typedef struct optional_pcp_response_header {
 } optional_pcp_response_header_t;
 
 static optional_pcp_response_header_t
-read_and_validate_response_header(const_view_t packet) {
+read_and_validate_response_header(pcp_transport_const_view_t packet) {
   if (packet.size < 4) {
     // missing header
     return (optional_pcp_response_header_t){.has_value = false};
@@ -143,9 +143,9 @@ static bool pcp_validate_epoch(pcp_epoch_t previous, pcp_epoch_t current) {
   return true;
 }
 
-void pcp_client_recv(pcp_client_internal_t *client,
-                     void * /*userdata*/,
-                     const_view_t packet) {
+void pcp_client_recv(void *data,
+                     pcp_transport_const_view_t packet) {
+  pcp_client_internal_t *internal = data;
   auto const header = read_and_validate_response_header(packet);
   if (!header.has_value) {
     return;
@@ -168,21 +168,21 @@ void pcp_client_recv(pcp_client_internal_t *client,
     return;
   }
 
-  pcp_epoch_t const previous = client->server.epoch;
-  client->server.epoch =
+  pcp_epoch_t const previous = internal->server.epoch;
+  internal->server.epoch =
       (pcp_epoch_t){.has_value = true,
                     .value = {.server_time = header.value.epoch,
-                              .client_time = CALL(client, time)}};
+                              .client_time = internal->time()}};
 
   // todo: server lost state, renew active mappings
   [[maybe_unused]] bool const server_lost_state =
-      !pcp_validate_epoch(previous, client->server.epoch);
+      !pcp_validate_epoch(previous, internal->server.epoch);
 
-  auto const begin = client->leases;
+  auto const begin = internal->leases;
   auto const end = begin + PCP_CLIENT_MAX_LEASES;
   for (auto lease = begin; lease != end; ++lease) {
     if (lease->has_value) {
-      pcp_lease_on_recv(&lease->value, client->transport, &result.value);
+      pcp_lease_on_recv(&lease->value, &internal->transport, &result.value);
     }
   }
 }

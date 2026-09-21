@@ -12,7 +12,6 @@ add_executable(tests)
 
 target_sources(tests
   PRIVATE
-    heap.c
     ip.c
     main.c)
 
@@ -21,7 +20,9 @@ target_link_libraries(tests
     pcp
     unity)
 
-target_include_directories(tests PRIVATE ${CMAKE_SOURCE_DIR}/lib)
+target_include_directories(tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/lib
+  ${CMAKE_SOURCE_DIR}/src)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(tests
@@ -36,4 +37,3 @@ else()
 endif()
 
 add_test(NAME tests COMMAND tests)
-

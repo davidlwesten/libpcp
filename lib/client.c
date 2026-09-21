@@ -6,14 +6,12 @@
 #include "packet.h"
 #include "peer.h"
 #include "server.h"
-#include "socket.h"
-#include "transport.h"
 
 #define _GNU_SOURCE
 #include <assert.h>
 #include <malloc.h>
 
-static time_t pcp_client_time(pcp_client_internal_t * /*self*/) {
+static time_t pcp_client_time() {
 #if !defined(NDEBUG)
   constexpr auto clock_id = CLOCK_THREAD_CPUTIME_ID;
 #else
@@ -24,31 +22,30 @@ static time_t pcp_client_time(pcp_client_internal_t * /*self*/) {
   return time.tv_sec;
 }
 
-static void pcp_client_run(pcp_client_t *client) {
-  auto const internal = (pcp_client_internal_t *)client;
-  CALL(internal->transport, run);
+static void pcp_client_run(pcp_client_internal_t *internal) {
+  CALL(&internal->transport, run, internal);
 }
 
 pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
   return (pcp_nonce_t){.data = {}};
 }
 
-static void pcp_client_on_send(pcp_client_internal_t *client,
-                               packet_t *request,
-                               size_or_error_t result) {
+static void pcp_client_on_send(packet_t *request,
+                               pcp_transport_size_or_error_t result) {
+  auto const client = request->client;
   if (!result.has_value &&
       (result.error == EAGAIN || result.error == EWOULDBLOCK ||
        result.error == EINTR || result.error == ENOBUFS)) {
-    CALL(client->transport, send,
-         (const_view_t){.size = request->size, .data = request->data},
-         (transport_on_send_t){
-             .fn = (transport_on_send_callback_t)pcp_client_on_send,
+    CALL(&client->transport, send,
+         (pcp_transport_const_view_t){.size = request->size, .data = request->data},
+         (pcp_transport_on_send_t){
+             .fn = (pcp_transport_on_send_callback_t)pcp_client_on_send,
              .userdata = request});
     return;
   }
 
   auto const begin = client->leases;
-  auto const end = begin + sizeof(client->leases);
+  auto const end = begin + PCP_CLIENT_MAX_LEASES;
   auto iter = begin;
   for (; iter != end; ++iter) {
     if (!iter->has_value) {
@@ -77,49 +74,49 @@ void pcp_client_send(pcp_client_internal_t *client,
                      pcp_option_t const options[options_count]) {
   uint8_t buffer[PCP_PACKET_MAX_SIZE] = {0};
   auto const view =
-      pcp_packet_write_request((view_t){.size = sizeof(buffer), .data = buffer},
+      pcp_packet_write_request((pcp_transport_view_t){.size = sizeof(buffer), .data = buffer},
                                request, options_count, options);
 
   auto const packet = packet_create(view.size, view.data);
   if (packet) {
-    CALL(client->transport, send,
-         (const_view_t){.size = packet->size, .data = packet->data},
-         (transport_on_send_t){
-             .fn = (transport_on_send_callback_t)pcp_client_on_send,
+    packet->client = client;
+    CALL(&client->transport, send,
+         (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
+         (pcp_transport_on_send_t){
+             .fn = (pcp_transport_on_send_callback_t)pcp_client_on_send,
              .userdata = packet});
   }
 }
 
-pcp_client_t *pcp_client_create(char const *pcp_server) {
-  auto client = (pcp_client_internal_t *)malloc(sizeof(pcp_client_internal_t));
-  if (!client) {
-    return nullptr;
+pcp_client_result_t pcp_client_create(pcp_transport_t transport) {
+  if (!transport.local || !transport.remote || !transport.send ||
+      !transport.add_timer || !transport.remove_timer || !transport.run) {
+    return (pcp_client_result_t){.has_value = false, .error = EINVAL};
   }
 
-  auto const transport = transport_connect(
-      pcp_server,
-      (transport_on_recv_t){.fn = (transport_on_recv_callback_t)pcp_client_recv,
-                            .userdata = nullptr},
-      client);
-
-  if (!transport.has_value) {
-    free(client);
-    return nullptr;
+  pcp_client_internal_t *internal = malloc(sizeof(pcp_client_internal_t));
+  if (!internal) {
+    free(internal);
+    return (pcp_client_result_t){.has_value = false, .error = ENOMEM};
   }
 
-  *client = (pcp_client_internal_t){.base = {.map = pcp_client_map_request,
-                                             .peer = pcp_client_peer_request,
-                                             .run = pcp_client_run},
-                                    .server = {},
-                                    .transport = transport.value,
-                                    .leases = {},
-                                    .time = pcp_client_time};
-
-  return (pcp_client_t *)client;
+  *internal = (pcp_client_internal_t){.server = {},
+                                      .transport = transport,
+                                      .leases = {},
+                                      .time = pcp_client_time};
+  return (pcp_client_result_t){
+      .has_value = true,
+      .value = {.data = internal,
+                .map = (void (*)(void *, pcp_protocol_t, port_t,
+                                 socket_address_t, time_t, size_t,
+                                 pcp_option_t const[]))pcp_client_map_request,
+                .peer = (void (*)(void *, pcp_protocol_t, port_t,
+                                  socket_address_t, socket_address_t, time_t,
+                                  size_t, pcp_option_t const[]))
+                    pcp_client_peer_request,
+                .run = (void (*)(void *))pcp_client_run}};
 }
 
 void pcp_client_destroy(pcp_client_t *client) {
-  pcp_client_internal_t *internal = (pcp_client_internal_t *)client;
-  CALL(internal->transport, close);
-  free(internal);
+  free(client->data);
 }

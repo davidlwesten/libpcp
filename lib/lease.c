@@ -2,7 +2,6 @@
 
 #include "client.h"
 #include "packet.h"
-#include "transport.h"
 
 #include <assert.h>
 #include <math.h>
@@ -16,20 +15,20 @@ static double rand_in_range(double min, double max) {
 }
 
 static void active_state_create(pcp_lease_t *lease,
-                                transport_t *transport,
+                                pcp_transport_t *transport,
                                 pcp_response_t const *response);
 
 static void error_state_create(pcp_lease_t *lease,
-                               transport_t *transport,
+                               pcp_transport_t *transport,
                                pcp_response_t const *response);
 
 static void renewing_state_create(pcp_lease_t *lease,
                                   pcp_client_internal_t *client);
 
 static void failed_state_on_recv(pcp_lease_t *lease,
-                                 transport_t *transport,
+                                 pcp_transport_t *transport,
                                  pcp_response_t const *response) {
-  const_view_t const packet = {.size = lease->base.request->size,
+  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
 
   pcp_request_header_t const header = pcp_packet_read_request_header(packet);
@@ -66,50 +65,55 @@ static void failed_state_on_recv(pcp_lease_t *lease,
   assert(lease->base.state == FAILED);
 }
 
-static void error_state_on_send(pcp_client_internal_t *client,
-                                pcp_lease_t *lease,
-                                size_or_error_t result) {
+static void error_state_on_send(pcp_lease_t *lease,
+                                pcp_transport_size_or_error_t result) {
   assert(result.has_value); // todo: retry?
+  auto const client = lease->base.client;
   pcp_pending_state_create(lease, client, lease->error.base.request);
 }
 
-static void error_state_on_timeout(transport_t *transport, pcp_lease_t *lease) {
-  const_view_t const packet = {.size = lease->error.base.request->size,
+static void error_state_on_timeout(pcp_lease_t *lease) {
+  auto const client = lease->base.client;
+  pcp_transport_const_view_t const packet = {.size = lease->error.base.request->size,
                                .data = lease->error.base.request->data};
-  CALL(transport, send, packet,
-       (transport_on_send_t){
-           .fn = (transport_on_send_callback_t)error_state_on_send,
+  CALL(&client->transport, send, packet,
+       (pcp_transport_on_send_t){
+           .fn = (pcp_transport_on_send_callback_t)error_state_on_send,
            .userdata = lease});
 }
 
 static void error_state_create(pcp_lease_t *lease,
-                               transport_t *transport,
+                               pcp_transport_t *transport,
                                pcp_response_t const *response) {
   assert(response->header.code == NETWORK_FAILURE ||
          response->header.code == NO_RESOURCES ||
          response->header.code == USER_EX_QUOTA ||
          response->header.code == CANNOT_PROVIDE_EXTERNAL);
 
-  transport_timeout_t const ttl = {.seconds = (double)response->header.ttl};
-  transport_timer_t const timer =
+  pcp_transport_timeout_t const ttl = {.seconds = (double)response->header.ttl};
+  auto const timer_result =
       CALL(transport, add_timer, ttl,
-           (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)error_state_on_timeout,
+           (pcp_transport_on_timer_t){
+               .fn = (pcp_transport_on_timer_callback_t)error_state_on_timeout,
                .userdata = lease});
+  assert(timer_result.has_value);
+  pcp_transport_timer_t const timer = timer_result.value;
 
   assert(lease->base.request);
   *lease = (pcp_lease_t){
-      .error = {.base = {.state = ERROR, .request = lease->base.request},
+      .error = {.base = {.state = ERROR,
+                         .client = lease->base.client,
+                         .request = lease->base.request},
                 .header = response->header,
                 .timer = timer}};
 }
 
 static void error_state_on_recv(pcp_lease_t *lease,
-                                transport_t *transport,
+                                pcp_transport_t *transport,
                                 pcp_response_t const *response) {
   assert(lease->base.request);
 
-  const_view_t const packet = {.size = lease->base.request->size,
+  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
 
   pcp_request_header_t const header = pcp_packet_read_request_header(packet);
@@ -152,40 +156,42 @@ static void error_state_on_recv(pcp_lease_t *lease,
   }
 }
 
-static void active_state_on_send(pcp_client_internal_t *client,
-                                 pcp_lease_t *lease,
-                                 size_or_error_t result) {
+static void active_state_on_send(pcp_lease_t *lease,
+                                 pcp_transport_size_or_error_t result) {
   assert(result.has_value); // todo: retry?
+  auto const client = lease->base.client;
   renewing_state_create(lease, client);
 }
 
-static void active_state_on_timeout(pcp_client_internal_t *client,
-                                    pcp_lease_t *lease) {
+static void active_state_on_timeout(pcp_lease_t *lease) {
+  auto const client = lease->base.client;
   auto const packet = lease->active.base.request;
-  CALL(client->transport, send,
-       (const_view_t){.size = packet->size, .data = packet->data},
-       (transport_on_send_t){
-           .fn = (transport_on_send_callback_t)active_state_on_send,
+  CALL(&client->transport, send,
+       (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
+       (pcp_transport_on_send_t){
+           .fn = (pcp_transport_on_send_callback_t)active_state_on_send,
            .userdata = lease});
 }
 
 static void active_state_create(pcp_lease_t *lease,
-                                transport_t *transport,
+                                pcp_transport_t *transport,
                                 pcp_response_t const *response) {
   assert(response->header.code == SUCCESS);
   assert(response->header.opcode == MAP || response->header.opcode == PEER);
 
-  transport_timeout_t const delay = {
+  pcp_transport_timeout_t const delay = {
       .seconds = fmax(rand_in_range(1.0 / 2.0, 5.0 / 8.0) *
                           (double)response->header.ttl,
                       4.0)};
   assert(delay.seconds >= 0);
 
-  auto const timer =
+  auto const timer_result =
       CALL(transport, add_timer, delay,
-           (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)active_state_on_timeout,
+           (pcp_transport_on_timer_t){
+               .fn = (pcp_transport_on_timer_callback_t)active_state_on_timeout,
                .userdata = lease});
+  assert(timer_result.has_value);
+  pcp_transport_timer_t const timer = timer_result.value;
 
   socket_address_t const external = (response->header.opcode == MAP)
                                         ? response->map.external
@@ -194,7 +200,7 @@ static void active_state_create(pcp_lease_t *lease,
   assert(lease->base.request);
 
   // need to update suggested external address for renewals
-  const_view_t const const_view = {.size = lease->base.request->size,
+  pcp_transport_const_view_t const const_view = {.size = lease->base.request->size,
                                    .data = lease->base.request->data};
   pcp_request_header_t const header =
       pcp_packet_read_request_header(const_view);
@@ -206,22 +212,24 @@ static void active_state_create(pcp_lease_t *lease,
     request.peer.external = external;
   }
 
-  pcp_packet_write_request((view_t){.size = lease->base.request->size,
+  pcp_packet_write_request((pcp_transport_view_t){.size = lease->base.request->size,
                                     .data = lease->base.request->data},
                            &request, 0, nullptr);
 
   *lease = (pcp_lease_t){
-      .active = {.base = {.state = ACTIVE, .request = lease->base.request},
-                 .header = response->header,
-                 .timer = timer,
-                 .expiration = time(nullptr) + response->header.ttl}};
+      .active = {.base = {.state = ACTIVE,
+                          .client = lease->base.client,
+                          .request = lease->base.request},
+                          .header = response->header,
+                          .timer = timer,
+                          .expiration = time(nullptr) + response->header.ttl}};
 }
 
 static void active_state_on_recv(pcp_lease_t *lease,
-                                 transport_t *transport,
+                                 pcp_transport_t *transport,
                                  pcp_response_t const *response) {
   assert(lease->base.request);
-  const_view_t const packet = {.size = lease->base.request->size,
+  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
 
   pcp_request_header_t const header = pcp_packet_read_request_header(packet);
@@ -265,10 +273,10 @@ static void active_state_on_recv(pcp_lease_t *lease,
 }
 
 static void renewing_state_on_recv(pcp_lease_t *lease,
-                                   transport_t *transport,
+                                   pcp_transport_t *transport,
                                    pcp_response_t const *response) {
   assert(lease->base.request);
-  const_view_t const packet = {.size = lease->base.request->size,
+  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
 
   pcp_request_header_t const header = pcp_packet_read_request_header(packet);
@@ -311,16 +319,15 @@ static void renewing_state_on_recv(pcp_lease_t *lease,
   }
 }
 
-static void renewing_state_on_timeout(pcp_client_internal_t *client,
-                                      pcp_lease_t *lease);
+static void renewing_state_on_timeout(pcp_lease_t *lease);
 
-static void renewing_state_on_send(pcp_client_internal_t *client,
-                                   pcp_lease_t *lease,
-                                   size_or_error_t result) {
+static void renewing_state_on_send(pcp_lease_t *lease,
+                                   pcp_transport_size_or_error_t result) {
   assert(result.has_value); // todo: retry?
   assert(lease->base.state == RENEWING);
+  auto const client = lease->base.client;
 
-  time_t const now = CALL(client, time);
+  time_t const now = client->time();
   time_t const remaining = lease->renewing.expiration - now;
 
   uint8_t const attempt = ++lease->renewing.rtx.count;
@@ -341,20 +348,22 @@ static void renewing_state_on_send(pcp_client_internal_t *client,
   double const factor = factor_start + factor_width * rand_in_range(0.0, 1.0);
 
   lease->renewing.rtx.timeout.seconds = fmax(factor * (double)remaining, 4.0);
-  lease->renewing.rtx.timer =
-      CALL(client->transport, add_timer, lease->renewing.rtx.timeout,
-           (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)renewing_state_on_timeout,
+  auto const timer_result =
+      CALL(&client->transport, add_timer, lease->renewing.rtx.timeout,
+           (pcp_transport_on_timer_t){
+               .fn = (pcp_transport_on_timer_callback_t)renewing_state_on_timeout,
                .userdata = lease});
+  assert(timer_result.has_value);
+  lease->renewing.rtx.timer = timer_result.value;
 }
 
-static void renewing_state_on_timeout(pcp_client_internal_t *client,
-                                      pcp_lease_t *lease) {
+static void renewing_state_on_timeout(pcp_lease_t *lease) {
+  auto const client = lease->base.client;
   auto const packet = lease->active.base.request;
-  CALL(client->transport, send,
-       (const_view_t){.size = packet->size, .data = packet->data},
-       (transport_on_send_t){
-           .fn = (transport_on_send_callback_t)renewing_state_on_send,
+  CALL(&client->transport, send,
+       (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
+       (pcp_transport_on_send_t){
+           .fn = (pcp_transport_on_send_callback_t)renewing_state_on_send,
            .userdata = lease});
 }
 
@@ -363,13 +372,13 @@ static void renewing_state_create(pcp_lease_t *lease,
   assert(lease);
   assert(lease->base.state == ACTIVE);
   assert(client);
-  assert(client->transport);
+  assert(client->transport.send);
 
-  time_t const now = CALL(client, time);
+  time_t const now = client->time();
   time_t const expiration = lease->active.expiration;
   time_t const remaining = expiration - now;
 
-  pcp_rtx_timer_t rtx = {.timer = (transport_timer_t)-1,
+  pcp_rtx_timer_t rtx = {.timer = (pcp_transport_timer_t)-1,
                          .timeout = {},
                          .max_timeout = 0,
                          .max_duration = expiration,
@@ -384,23 +393,27 @@ static void renewing_state_create(pcp_lease_t *lease,
   double const factor = factor_start + factor_width * rand_in_range(0.0, 1.0);
 
   rtx.timeout.seconds = fmax(factor * (double)remaining, 4.0);
-  rtx.timer =
-      CALL(client->transport, add_timer, rtx.timeout,
-           (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)renewing_state_on_timeout,
+  auto const timer_result =
+      CALL(&client->transport, add_timer, rtx.timeout,
+           (pcp_transport_on_timer_t){
+               .fn = (pcp_transport_on_timer_callback_t)renewing_state_on_timeout,
                .userdata = lease});
+  assert(timer_result.has_value);
+  rtx.timer = timer_result.value;
 
   *lease = (pcp_lease_t){
-      .renewing = {.base = {.state = RENEWING, .request = lease->base.request},
+      .renewing = {.base = {.state = RENEWING,
+                            .client = client,
+                            .request = lease->base.request},
                    .expiration = lease->active.expiration,
                    .rtx = rtx}};
 }
 
 static void pending_state_on_recv(pcp_lease_t *lease,
-                                  transport_t *transport,
+                                  pcp_transport_t *transport,
                                   pcp_response_t const *response) {
   assert(lease->base.request);
-  const_view_t const packet = {.size = lease->base.request->size,
+  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
                                .data = lease->base.request->data};
 
   pcp_request_header_t const header = pcp_packet_read_request_header(packet);
@@ -443,38 +456,38 @@ static void pending_state_on_recv(pcp_lease_t *lease,
   }
 }
 
-static void pending_state_on_timeout(pcp_client_internal_t *client,
-                                     pcp_lease_t *lease);
+static void pending_state_on_timeout(pcp_lease_t *lease);
 
-static void pending_state_on_send(pcp_client_internal_t *client,
-                                  pcp_lease_t *lease,
-                                  size_or_error_t result) {
+static void pending_state_on_send(pcp_lease_t *lease,
+                                  pcp_transport_size_or_error_t result) {
   // todo: retry?
   assert(result.has_value);
+  auto const client = lease->base.client;
 
   double const doubled = 2.0 * lease->pending.rtx.timeout.seconds;
   double const capped =
       lease->pending.rtx.max_timeout
           ? fmin(doubled, (double)lease->pending.rtx.max_timeout)
           : doubled;
-  transport_timeout_t const timeout = {
+  pcp_transport_timeout_t const timeout = {
       .seconds = (1.0 + rand_in_range(-0.1, 0.1)) * capped};
   lease->pending.rtx.timeout = timeout;
-  lease->pending.rtx.timer =
-      CALL(client->transport, add_timer, timeout,
-           (transport_on_timer_t){
-               .fn = (transport_on_timer_callback_t)pending_state_on_timeout,
+  auto const timer_result =
+      CALL(&client->transport, add_timer, timeout,
+           (pcp_transport_on_timer_t){
+               .fn = (pcp_transport_on_timer_callback_t)pending_state_on_timeout,
                .userdata = lease});
+  assert(timer_result.has_value);
+  lease->pending.rtx.timer = timer_result.value;
 }
 
-static void pending_state_on_timeout(pcp_client_internal_t *client,
-                                     pcp_lease_t *lease) {
-  assert(client);
+static void pending_state_on_timeout(pcp_lease_t *lease) {
   assert(lease);
   assert(lease->base.request);
+  auto const client = lease->base.client;
 
   time_t const max_duration = lease->pending.rtx.max_duration;
-  time_t const now = CALL(client, time);
+  time_t const now = client->time();
   if (max_duration && now < max_duration) {
     pcp_failed_state_create(
         lease,
@@ -495,15 +508,15 @@ static void pending_state_on_timeout(pcp_client_internal_t *client,
   }
 
   auto const packet = lease->pending.base.request;
-  CALL(client->transport, send,
-       (const_view_t){.size = packet->size, .data = packet->data},
-       (transport_on_send_t){
-           .fn = (transport_on_send_callback_t)pending_state_on_send,
+  CALL(&client->transport, send,
+       (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
+       (pcp_transport_on_send_t){
+           .fn = (pcp_transport_on_send_callback_t)pending_state_on_send,
            .userdata = lease});
 }
 
 void pcp_lease_on_recv(pcp_lease_t *lease,
-                       transport_t *transport,
+                       pcp_transport_t *transport,
                        pcp_response_t const *response) {
   switch (lease->base.state) {
   case PENDING:
@@ -529,7 +542,7 @@ void pcp_pending_state_create(pcp_lease_t *lease,
                               packet_t *request) {
   assert(lease);
   assert(client);
-  assert(client->transport);
+  assert(client->transport.send);
   assert(request);
 
   static constexpr time_t PCP_IRT = 3;
@@ -537,20 +550,26 @@ void pcp_pending_state_create(pcp_lease_t *lease,
   static constexpr time_t PCP_MRD = 0;
   static constexpr uint8_t PCP_MRC = 0;
 
-  transport_timeout_t const timeout = {
+  pcp_transport_timeout_t const timeout = {
       .seconds = (1 + rand_in_range(-0.1, 0.1)) * PCP_IRT};
+  auto const timer_result =
+      CALL(&client->transport, add_timer, timeout,
+                    (pcp_transport_on_timer_t){.fn = (pcp_transport_on_timer_callback_t)
+                                                   pending_state_on_timeout,
+                    .userdata = lease});
+  assert(timer_result.has_value);
   pcp_rtx_timer_t const rtx = {
-      .timer = CALL(client->transport, add_timer, timeout,
-                    (transport_on_timer_t){.fn = (transport_on_timer_callback_t)
-                                               pending_state_on_timeout,
-                                           .userdata = lease}),
+      .timer = timer_result.value,
       .timeout = timeout,
       .max_timeout = PCP_MRT,
-      .max_duration = (PCP_MRD) ? PCP_MRD + CALL(client, time) : PCP_MRD,
+      .max_duration = (PCP_MRD) ? PCP_MRD + client->time() : PCP_MRD,
       .count = 1,
       .max_count = PCP_MRC};
   *lease = (pcp_lease_t){
-      .pending = {.base = {.state = PENDING, .request = request}, .rtx = rtx}};
+      .pending = {.base = {.state = PENDING,
+                           .client = client,
+                           .request = request},
+                  .rtx = rtx}};
 }
 
 void pcp_failed_state_create(pcp_lease_t *lease,
@@ -562,6 +581,8 @@ void pcp_failed_state_create(pcp_lease_t *lease,
                                 header.value.code == USER_EX_QUOTA ||
                                 header.value.code == CANNOT_PROVIDE_EXTERNAL)));
   *lease =
-      (pcp_lease_t){.failed = {.base = {.state = FAILED, .request = request},
+      (pcp_lease_t){.failed = {.base = {.state = FAILED,
+                                        .client = request->client,
+                                        .request = request},
                                .header = header}};
 }

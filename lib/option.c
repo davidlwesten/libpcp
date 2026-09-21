@@ -2,7 +2,7 @@
 
 #include "packet.h"
 
-void pcp_packet_body_write_third_party(view_t dst,
+void pcp_packet_body_write_third_party(pcp_transport_view_t dst,
                                        size_t offset,
                                        const pcp_option_third_party_t *src) {
   pcp_packet_body_write_uint8_t(dst, offset, src->code);
@@ -11,13 +11,13 @@ void pcp_packet_body_write_third_party(view_t dst,
 }
 
 void pcp_packet_body_write_prefer_failure(
-    view_t dst,
+    pcp_transport_view_t dst,
     size_t offset,
     const pcp_option_prefer_failure_t *src) {
   pcp_packet_body_write_uint8_t(dst, offset, src->code);
 }
 
-void pcp_packet_body_write_filter(view_t dst,
+void pcp_packet_body_write_filter(pcp_transport_view_t dst,
                                   size_t offset,
                                   const pcp_option_filter_t *src) {
   pcp_packet_body_write_uint8_t(dst, offset, src->code);
