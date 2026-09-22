@@ -26,44 +26,6 @@ pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
   return (pcp_nonce_t){.data = {}};
 }
 
-static void pcp_client_on_send(packet_t *request,
-                               pcp_transport_size_or_error_t result) {
-  auto const client = request->client;
-  if (!result.has_value &&
-      (result.error == EAGAIN || result.error == EWOULDBLOCK ||
-       result.error == EINTR || result.error == ENOBUFS)) {
-    CALL(&client->transport, send,
-         (pcp_transport_const_view_t){.size = request->size, .data = request->data},
-         (pcp_transport_on_send_t){
-             .fn = (pcp_transport_on_send_callback_t)pcp_client_on_send,
-             .userdata = request});
-    return;
-  }
-
-  auto const begin = client->leases;
-  auto const end = begin + PCP_CLIENT_MAX_LEASES;
-  auto iter = begin;
-  for (; iter != end; ++iter) {
-    if (!iter->has_value) {
-      break;
-    }
-  }
-
-  assert(iter != end);
-  iter->has_value = true;
-
-  if (!result.has_value) {
-    pcp_failed_state_create(
-        &iter->value,
-        (pcp_response_header_or_error_t){.has_value = false,
-                                         .error = result.error},
-        request);
-  } else {
-    assert(result.value == request->size);
-    pcp_pending_state_create(&iter->value, client, request);
-  }
-}
-
 void pcp_client_send(pcp_client_internal_t *client,
                      const pcp_request_t *request,
                      size_t options_count,
@@ -75,12 +37,20 @@ void pcp_client_send(pcp_client_internal_t *client,
 
   auto const packet = packet_create(view.size, view.data);
   if (packet) {
-    packet->client = client;
-    CALL(&client->transport, send,
-         (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
-         (pcp_transport_on_send_t){
-             .fn = (pcp_transport_on_send_callback_t)pcp_client_on_send,
-             .userdata = packet});
+    auto const lease_begin = client->leases;
+    auto const lease_end = lease_begin + PCP_CLIENT_MAX_LEASES;
+    optional_lease_t *lease = lease_begin;
+    for (; lease != lease_end; ++lease) {
+      if (!lease->has_value) {
+        break;
+      }
+    }
+    if (lease == lease_end) {
+      packet_destroy(packet);
+      return;
+    }
+    lease->has_value = true;
+    pcp_lease_start(&lease->value, client->transport, client->time, packet);
   }
 }
 

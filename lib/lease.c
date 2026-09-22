@@ -1,7 +1,8 @@
 #include "lease.h"
 
-#include "client.h"
 #include "packet.h"
+
+#include <pcp/pcp.h>
 
 #include <assert.h>
 #include <math.h>
@@ -14,575 +15,354 @@ static double rand_in_range(double min, double max) {
   return min + (scale * (max - min));
 }
 
-static void active_state_create(pcp_lease_t *lease,
-                                pcp_transport_t *transport,
-                                pcp_response_t const *response);
+static void lease_on_timeout(pcp_lease_t *lease);
+static void lease_on_send(pcp_lease_t *lease,
+                          pcp_transport_size_or_error_t result);
 
-static void error_state_create(pcp_lease_t *lease,
-                               pcp_transport_t *transport,
-                               pcp_response_t const *response);
-
-static void renewing_state_create(pcp_lease_t *lease,
-                                  pcp_client_internal_t *client);
-
-static void failed_state_on_recv(pcp_lease_t *lease,
-                                 pcp_transport_t *transport,
-                                 pcp_response_t const *response) {
-  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
-                               .data = lease->base.request->data};
-
-  pcp_request_header_t const header = pcp_packet_read_request_header(packet);
-  if (header.opcode != response->header.opcode) {
-    return;
-  }
-
-  pcp_request_t const request = pcp_packet_read_request(header, packet);
-
-  if (header.opcode == MAP && memcmp(&request.map.nonce, &response->map.nonce,
-                                     sizeof(request.map.nonce)) != 0) {
-    return;
-  }
-
-  if (header.opcode == PEER &&
-      memcmp(&request.peer.nonce, &response->peer.nonce,
-             sizeof(request.peer.nonce)) != 0) {
-    return;
-  }
-
-  switch (response->header.code) {
-  case SUCCESS:
-    active_state_create(lease, transport, response);
-    break;
-  case NETWORK_FAILURE:
-  case NO_RESOURCES:
-  case USER_EX_QUOTA:
-  case CANNOT_PROVIDE_EXTERNAL:
-    error_state_create(lease, transport, response);
-    break;
-  default:
-    break;
-  }
-  assert(lease->base.state == FAILED);
+static pcp_lease_retry_result_t initial_retry_advance(pcp_rtx_timer_t *retry,
+                                                      time_t /*now*/) {
+  double const capped = retry->max_timeout ? fmin(2.0 * retry->timeout.seconds,
+                                                  (double)retry->max_timeout)
+                                           : 2.0 * retry->timeout.seconds;
+  return (pcp_lease_retry_result_t){
+      .should_retry = true,
+      .timeout = {.seconds = (1.0 + rand_in_range(-0.1, 0.1)) * capped}};
 }
 
-static void error_state_on_send(pcp_lease_t *lease,
-                                pcp_transport_size_or_error_t result) {
-  assert(result.has_value); // todo: retry?
-  auto const client = lease->base.client;
-  pcp_pending_state_create(lease, client, lease->error.base.request);
+static pcp_lease_retry_result_t renewal_retry_advance(pcp_rtx_timer_t *retry,
+                                                      time_t now) {
+  if (retry->max_duration && now >= retry->max_duration) {
+    return (pcp_lease_retry_result_t){.should_retry = false};
+  }
+
+  ++retry->count;
+  double const factor_start = 1.0 - (1.0 / (double)(1u << retry->count));
+  double const factor_width = 1.0 / (double)(1u << (retry->count + 2));
+  double const factor = factor_start + factor_width * rand_in_range(0.0, 1.0);
+  return (pcp_lease_retry_result_t){
+      .should_retry = true,
+      .timeout = {.seconds =
+                      fmax(factor * (double)(retry->max_duration - now), 4.0)}};
 }
 
-static void error_state_on_timeout(pcp_lease_t *lease) {
-  auto const client = lease->base.client;
-  pcp_transport_const_view_t const packet = {.size = lease->error.base.request->size,
-                               .data = lease->error.base.request->data};
-  CALL(&client->transport, send, packet,
-       (pcp_transport_on_send_t){
-           .fn = (pcp_transport_on_send_callback_t)error_state_on_send,
-           .userdata = lease});
+static bool lease_retry_expired(pcp_rtx_timer_t const *retry, time_t now) {
+  return (retry->max_duration && now >= retry->max_duration) ||
+         (retry->max_count && retry->count >= retry->max_count);
 }
 
-static void error_state_create(pcp_lease_t *lease,
-                               pcp_transport_t *transport,
-                               pcp_response_t const *response) {
-  assert(response->header.code == NETWORK_FAILURE ||
-         response->header.code == NO_RESOURCES ||
-         response->header.code == USER_EX_QUOTA ||
-         response->header.code == CANNOT_PROVIDE_EXTERNAL);
+static pcp_transport_const_view_t lease_packet(pcp_lease_t const *lease) {
+  assert(lease->common.request);
+  return (pcp_transport_const_view_t){.size = lease->common.request->size,
+                                      .data = lease->common.request->data};
+}
 
-  pcp_transport_timeout_t const ttl = {.seconds = (double)response->header.ttl};
+static void lease_remove_timer(pcp_lease_t *lease) {
+  switch (lease->state) {
+  case PENDING:
+    CALL(&lease->common.transport, remove_timer, lease->pending.rtx.timer);
+    break;
+  case ACTIVE:
+    CALL(&lease->common.transport, remove_timer, lease->active.timer);
+    break;
+  case RENEWING:
+    CALL(&lease->common.transport, remove_timer, lease->renewing.rtx.timer);
+    break;
+  case FAILED:
+    break;
+  }
+}
+
+static bool lease_arm_timer(pcp_lease_t *lease,
+                            pcp_transport_timeout_t timeout) {
   auto const timer_result =
-      CALL(transport, add_timer, ttl,
+      CALL(&lease->common.transport, add_timer, timeout,
            (pcp_transport_on_timer_t){
-               .fn = (pcp_transport_on_timer_callback_t)error_state_on_timeout,
+               .fn = (pcp_transport_on_timer_callback_t)lease_on_timeout,
                .userdata = lease});
-  assert(timer_result.has_value);
-  pcp_transport_timer_t const timer = timer_result.value;
+  if (!timer_result.has_value) {
+    pcp_failed_state_create(
+        lease, (pcp_response_header_or_error_t){.has_value = false,
+                                                .error = timer_result.error});
+    return false;
+  }
 
-  assert(lease->base.request);
-  *lease = (pcp_lease_t){
-      .error = {.base = {.state = ERROR,
-                         .client = lease->base.client,
-                         .request = lease->base.request},
-                .header = response->header,
-                .timer = timer}};
+  switch (lease->state) {
+  case PENDING:
+    lease->pending.rtx.timer = timer_result.value;
+    break;
+  case ACTIVE:
+    lease->active.timer = timer_result.value;
+    break;
+  case RENEWING:
+    lease->renewing.rtx.timer = timer_result.value;
+    break;
+  case FAILED:
+    assert(false);
+  }
+  return true;
 }
 
-static void error_state_on_recv(pcp_lease_t *lease,
-                                pcp_transport_t *transport,
-                                pcp_response_t const *response) {
-  assert(lease->base.request);
-
-  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
-                               .data = lease->base.request->data};
-
-  pcp_request_header_t const header = pcp_packet_read_request_header(packet);
+static bool lease_response_matches(pcp_lease_t const *lease,
+                                   pcp_response_t const *response) {
+  auto const packet = lease_packet(lease);
+  auto const header = pcp_packet_read_request_header(packet);
   if (header.opcode != response->header.opcode) {
-    return;
+    return false;
   }
 
-  pcp_request_t const request = pcp_packet_read_request(header, packet);
-
-  if (header.opcode == MAP && memcmp(&request.map.nonce, &response->map.nonce,
-                                     sizeof(request.map.nonce)) != 0) {
-    return;
+  auto const request = pcp_packet_read_request(header, packet);
+  switch (header.opcode) {
+  case MAP:
+    return memcmp(&request.map.nonce, &response->map.nonce,
+                  sizeof(request.map.nonce)) == 0;
+  case PEER:
+    return memcmp(&request.peer.nonce, &response->peer.nonce,
+                  sizeof(request.peer.nonce)) == 0;
+  case ANNOUNCE:
+    return true;
   }
+  return false;
+}
 
-  if (header.opcode == PEER &&
-      memcmp(&request.peer.nonce, &response->peer.nonce,
-             sizeof(request.peer.nonce)) != 0) {
-    return;
-  }
-
-  CALL(transport, remove_timer, lease->error.timer);
-
-  switch (response->header.code) {
-  case SUCCESS:
-    active_state_create(lease, transport, response);
-    break;
+static bool lease_transient_error(pcp_result_t code) {
+  switch (code) {
   case NETWORK_FAILURE:
   case NO_RESOURCES:
   case USER_EX_QUOTA:
   case CANNOT_PROVIDE_EXTERNAL:
-    error_state_create(lease, transport, response);
-    break;
+    return true;
   default:
-    pcp_failed_state_create(
-        lease,
-        (pcp_response_header_or_error_t){.has_value = true,
-                                         .value = response->header},
-        lease->base.request);
-    break;
+    return false;
   }
 }
 
-static void active_state_on_send(pcp_lease_t *lease,
-                                 pcp_transport_size_or_error_t result) {
-  assert(result.has_value); // todo: retry?
-  auto const client = lease->base.client;
-  renewing_state_create(lease, client);
+static bool lease_retryable_send_error(errno_t error) {
+  return error == EAGAIN || error == EWOULDBLOCK || error == EINTR ||
+         error == ENOBUFS;
 }
 
-static void active_state_on_timeout(pcp_lease_t *lease) {
-  auto const client = lease->base.client;
-  auto const packet = lease->active.base.request;
-  CALL(&client->transport, send,
-       (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
+static void lease_send(pcp_lease_t *lease) {
+  CALL(&lease->common.transport, send, lease_packet(lease),
        (pcp_transport_on_send_t){
-           .fn = (pcp_transport_on_send_callback_t)active_state_on_send,
+           .fn = (pcp_transport_on_send_callback_t)lease_on_send,
            .userdata = lease});
 }
 
-static void active_state_create(pcp_lease_t *lease,
-                                pcp_transport_t *transport,
-                                pcp_response_t const *response) {
-  assert(response->header.code == SUCCESS);
-  assert(response->header.opcode == MAP || response->header.opcode == PEER);
+static void lease_enter_pending(pcp_lease_t *lease,
+                                pcp_transport_timeout_t timeout) {
+  auto const common = lease->common;
+  *lease =
+      (pcp_lease_t){.state = PENDING,
+                    .common = common,
+                    .pending = {.rtx = {.timeout = timeout,
+                                        .max_timeout = 1024,
+                                        .max_duration = 0,
+                                        .count = 1,
+                                        .max_count = 0,
+                                        .advance = initial_retry_advance}}};
+  lease_arm_timer(lease, timeout);
+}
 
+static void lease_enter_active(pcp_lease_t *lease,
+                               pcp_response_t const *response) {
+  assert(response->header.code == SUCCESS);
+
+  auto const external = response->header.opcode == MAP
+                            ? response->map.external
+                            : response->peer.external;
+  auto const packet = lease_packet(lease);
+  auto const header = pcp_packet_read_request_header(packet);
+  auto request = pcp_packet_read_request(header, packet);
+  if (header.opcode == MAP) {
+    request.map.external = external;
+  } else {
+    request.peer.external = external;
+  }
+  pcp_packet_write_request(
+      (pcp_transport_view_t){.size = lease->common.request->size,
+                             .data = lease->common.request->data},
+      &request, 0, nullptr);
+
+  time_t const expiration = lease->common.time() + response->header.ttl;
   pcp_transport_timeout_t const delay = {
       .seconds = fmax(rand_in_range(1.0 / 2.0, 5.0 / 8.0) *
                           (double)response->header.ttl,
                       4.0)};
-  assert(delay.seconds >= 0);
-
-  auto const timer_result =
-      CALL(transport, add_timer, delay,
-           (pcp_transport_on_timer_t){
-               .fn = (pcp_transport_on_timer_callback_t)active_state_on_timeout,
-               .userdata = lease});
-  assert(timer_result.has_value);
-  pcp_transport_timer_t const timer = timer_result.value;
-
-  socket_address_t const external = (response->header.opcode == MAP)
-                                        ? response->map.external
-                                        : response->peer.external;
-
-  assert(lease->base.request);
-
-  // need to update suggested external address for renewals
-  pcp_transport_const_view_t const const_view = {.size = lease->base.request->size,
-                                   .data = lease->base.request->data};
-  pcp_request_header_t const header =
-      pcp_packet_read_request_header(const_view);
-  pcp_request_t request = pcp_packet_read_request(header, const_view);
-
-  if (header.opcode == MAP) {
-    request.map.external = external;
-  } else if (header.opcode == PEER) {
-    request.peer.external = external;
-  }
-
-  pcp_packet_write_request((pcp_transport_view_t){.size = lease->base.request->size,
-                                    .data = lease->base.request->data},
-                           &request, 0, nullptr);
-
-  *lease = (pcp_lease_t){
-      .active = {.base = {.state = ACTIVE,
-                          .client = lease->base.client,
-                          .request = lease->base.request},
-                          .header = response->header,
-                          .timer = timer,
-                          .expiration = time(nullptr) + response->header.ttl}};
+  auto const common = lease->common;
+  *lease = (pcp_lease_t){.state = ACTIVE,
+                         .common = common,
+                         .active = {.header = response->header,
+                                    .expiration = expiration}};
+  lease_arm_timer(lease, delay);
 }
 
-static void active_state_on_recv(pcp_lease_t *lease,
-                                 pcp_transport_t *transport,
-                                 pcp_response_t const *response) {
-  assert(lease->base.request);
-  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
-                               .data = lease->base.request->data};
+static void lease_enter_renewing(pcp_lease_t *lease) {
+  auto const common = lease->common;
+  auto const expiration = lease->active.expiration;
+  *lease =
+      (pcp_lease_t){.state = RENEWING,
+                    .common = common,
+                    .renewing = {.expiration = expiration,
+                                 .rtx = {.timeout = {},
+                                         .max_timeout = 0,
+                                         .max_duration = expiration,
+                                         .count = 1,
+                                         .max_count = 0,
+                                         .advance = renewal_retry_advance}}};
 
-  pcp_request_header_t const header = pcp_packet_read_request_header(packet);
-  if (header.opcode != response->header.opcode) {
+  time_t const now = lease->common.time();
+  auto const next = lease->renewing.rtx.advance(&lease->renewing.rtx, now);
+  if (!next.should_retry) {
+    pcp_failed_state_create(
+        lease, (pcp_response_header_or_error_t){.has_value = false,
+                                                .error = ETIMEDOUT});
+    return;
+  }
+  lease->renewing.rtx.timeout = next.timeout;
+  lease_arm_timer(lease, next.timeout);
+}
+
+static void lease_on_response(pcp_lease_t *lease,
+                              pcp_response_t const *response) {
+  if (!lease_response_matches(lease, response)) {
     return;
   }
 
-  pcp_request_t const request = pcp_packet_read_request(header, packet);
-
-  if (header.opcode == MAP && memcmp(&request.map.nonce, &response->map.nonce,
-                                     sizeof(request.map.nonce)) != 0) {
-    return;
-  }
-
-  if (header.opcode == PEER &&
-      memcmp(&request.peer.nonce, &response->peer.nonce,
-             sizeof(request.peer.nonce)) != 0) {
-    return;
-  }
-
-  CALL(transport, remove_timer, lease->active.timer);
-
+  lease_remove_timer(lease);
   switch (response->header.code) {
   case SUCCESS:
-    active_state_create(lease, transport, response);
-    break;
-  case NETWORK_FAILURE:
-  case NO_RESOURCES:
-  case USER_EX_QUOTA:
-  case CANNOT_PROVIDE_EXTERNAL:
-    error_state_create(lease, transport, response);
+    lease_enter_active(lease, response);
     break;
   default:
-    pcp_failed_state_create(
-        lease,
-        (pcp_response_header_or_error_t){.has_value = true,
-                                         .value = response->header},
-        lease->base.request);
+    if (lease_transient_error(response->header.code)) {
+      pcp_transport_timeout_t const timeout = {
+          .seconds = (double)response->header.ttl};
+      if (lease->state == PENDING) {
+        lease->pending.rtx.timeout = timeout;
+        lease->pending.rtx.advance = initial_retry_advance;
+        lease_arm_timer(lease, timeout);
+      } else {
+        lease->renewing.rtx.timeout = timeout;
+        lease->renewing.rtx.advance = initial_retry_advance;
+        lease->renewing.rtx.count = 1;
+        lease_arm_timer(lease, timeout);
+      }
+    } else {
+      pcp_failed_state_create(
+          lease, (pcp_response_header_or_error_t){.has_value = true,
+                                                  .value = response->header});
+    }
     break;
   }
 }
 
-static void renewing_state_on_recv(pcp_lease_t *lease,
-                                   pcp_transport_t *transport,
-                                   pcp_response_t const *response) {
-  assert(lease->base.request);
-  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
-                               .data = lease->base.request->data};
-
-  pcp_request_header_t const header = pcp_packet_read_request_header(packet);
-  if (header.opcode != response->header.opcode) {
+static void lease_on_send(pcp_lease_t *lease,
+                          pcp_transport_size_or_error_t result) {
+  if (result.has_value || lease_retryable_send_error(result.error)) {
     return;
   }
 
-  pcp_request_t const request = pcp_packet_read_request(header, packet);
-
-  if (header.opcode == MAP && memcmp(&request.map.nonce, &response->map.nonce,
-                                     sizeof(request.map.nonce)) != 0) {
-    return;
-  }
-
-  if (header.opcode == PEER &&
-      memcmp(&request.peer.nonce, &response->peer.nonce,
-             sizeof(request.peer.nonce)) != 0) {
-    return;
-  }
-
-  CALL(transport, remove_timer, lease->renewing.rtx.timer);
-
-  switch (response->header.code) {
-  case SUCCESS:
-    active_state_create(lease, transport, response);
-    break;
-  case NETWORK_FAILURE:
-  case NO_RESOURCES:
-  case USER_EX_QUOTA:
-  case CANNOT_PROVIDE_EXTERNAL:
-    error_state_create(lease, transport, response);
-    break;
-  default:
-    pcp_failed_state_create(
-        lease,
-        (pcp_response_header_or_error_t){.has_value = true,
-                                         .value = response->header},
-        lease->base.request);
-    break;
-  }
+  pcp_failed_state_create(
+      lease, (pcp_response_header_or_error_t){.has_value = false,
+                                              .error = result.error});
 }
 
-static void renewing_state_on_timeout(pcp_lease_t *lease);
-
-static void renewing_state_on_send(pcp_lease_t *lease,
-                                   pcp_transport_size_or_error_t result) {
-  assert(result.has_value); // todo: retry?
-  assert(lease->base.state == RENEWING);
-  auto const client = lease->base.client;
-
-  time_t const now = client->time();
-  time_t const remaining = lease->renewing.expiration - now;
-
-  uint8_t const attempt = ++lease->renewing.rtx.count;
-  if (lease->renewing.rtx.max_count &&
-      lease->renewing.rtx.max_count < attempt) {
-    assert(false); // todo: transition to failed
-  }
-
-  if (lease->renewing.rtx.max_duration &&
-      (lease->renewing.rtx.max_duration < now)) {
-    assert(false); // todo: transition to failed
-  }
-
-  double const factor_start =
-      1.0 - (1.0 / (double)(1u << attempt)); // 1/2, 3/4, 7/8, ...
-  double const factor_width =
-      1.0 / (double)(1u << (attempt + 2)); // 1/8, 1/16, 1/32, ...
-  double const factor = factor_start + factor_width * rand_in_range(0.0, 1.0);
-
-  lease->renewing.rtx.timeout.seconds = fmax(factor * (double)remaining, 4.0);
-  auto const timer_result =
-      CALL(&client->transport, add_timer, lease->renewing.rtx.timeout,
-           (pcp_transport_on_timer_t){
-               .fn = (pcp_transport_on_timer_callback_t)renewing_state_on_timeout,
-               .userdata = lease});
-  assert(timer_result.has_value);
-  lease->renewing.rtx.timer = timer_result.value;
-}
-
-static void renewing_state_on_timeout(pcp_lease_t *lease) {
-  auto const client = lease->base.client;
-  auto const packet = lease->active.base.request;
-  CALL(&client->transport, send,
-       (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
-       (pcp_transport_on_send_t){
-           .fn = (pcp_transport_on_send_callback_t)renewing_state_on_send,
-           .userdata = lease});
-}
-
-static void renewing_state_create(pcp_lease_t *lease,
-                                  pcp_client_internal_t *client) {
-  assert(lease);
-  assert(lease->base.state == ACTIVE);
-  assert(client);
-  assert(client->transport.send);
-
-  time_t const now = client->time();
-  time_t const expiration = lease->active.expiration;
-  time_t const remaining = expiration - now;
-
-  pcp_rtx_timer_t rtx = {.timer = (pcp_transport_timer_t)-1,
-                         .timeout = {},
-                         .max_timeout = 0,
-                         .max_duration = expiration,
-                         .count =
-                             2, // first attempt was in active_state_on_timeout
-                         .max_count = 0};
-
-  double const factor_start =
-      1.0 - (1.0 / (double)(1u << rtx.count)); // 1/2, 3/4, 7/8, ...
-  double const factor_width =
-      1.0 / (double)(1u << (rtx.count + 2)); // 1/8, 1/16, 1/32, ...
-  double const factor = factor_start + factor_width * rand_in_range(0.0, 1.0);
-
-  rtx.timeout.seconds = fmax(factor * (double)remaining, 4.0);
-  auto const timer_result =
-      CALL(&client->transport, add_timer, rtx.timeout,
-           (pcp_transport_on_timer_t){
-               .fn = (pcp_transport_on_timer_callback_t)renewing_state_on_timeout,
-               .userdata = lease});
-  assert(timer_result.has_value);
-  rtx.timer = timer_result.value;
-
-  *lease = (pcp_lease_t){
-      .renewing = {.base = {.state = RENEWING,
-                            .client = client,
-                            .request = lease->base.request},
-                   .expiration = lease->active.expiration,
-                   .rtx = rtx}};
-}
-
-static void pending_state_on_recv(pcp_lease_t *lease,
-                                  pcp_transport_t *transport,
-                                  pcp_response_t const *response) {
-  assert(lease->base.request);
-  pcp_transport_const_view_t const packet = {.size = lease->base.request->size,
-                               .data = lease->base.request->data};
-
-  pcp_request_header_t const header = pcp_packet_read_request_header(packet);
-  if (header.opcode != response->header.opcode) {
-    return;
-  }
-
-  pcp_request_t const request = pcp_packet_read_request(header, packet);
-
-  if (header.opcode == MAP && memcmp(&request.map.nonce, &response->map.nonce,
-                                     sizeof(request.map.nonce)) != 0) {
-    return;
-  }
-
-  if (header.opcode == PEER &&
-      memcmp(&request.peer.nonce, &response->peer.nonce,
-             sizeof(request.peer.nonce)) != 0) {
-    return;
-  }
-
-  CALL(transport, remove_timer, lease->pending.rtx.timer);
-
-  switch (response->header.code) {
-  case SUCCESS:
-    active_state_create(lease, transport, response);
-    break;
-  case NETWORK_FAILURE:
-  case NO_RESOURCES:
-  case USER_EX_QUOTA:
-  case CANNOT_PROVIDE_EXTERNAL:
-    error_state_create(lease, transport, response);
-    break;
-  default:
-    pcp_failed_state_create(
-        lease,
-        (pcp_response_header_or_error_t){.has_value = true,
-                                         .value = response->header},
-        lease->base.request);
-    break;
-  }
-}
-
-static void pending_state_on_timeout(pcp_lease_t *lease);
-
-static void pending_state_on_send(pcp_lease_t *lease,
-                                  pcp_transport_size_or_error_t result) {
-  // todo: retry?
-  assert(result.has_value);
-  auto const client = lease->base.client;
-
-  double const doubled = 2.0 * lease->pending.rtx.timeout.seconds;
-  double const capped =
-      lease->pending.rtx.max_timeout
-          ? fmin(doubled, (double)lease->pending.rtx.max_timeout)
-          : doubled;
-  pcp_transport_timeout_t const timeout = {
-      .seconds = (1.0 + rand_in_range(-0.1, 0.1)) * capped};
-  lease->pending.rtx.timeout = timeout;
-  auto const timer_result =
-      CALL(&client->transport, add_timer, timeout,
-           (pcp_transport_on_timer_t){
-               .fn = (pcp_transport_on_timer_callback_t)pending_state_on_timeout,
-               .userdata = lease});
-  assert(timer_result.has_value);
-  lease->pending.rtx.timer = timer_result.value;
-}
-
-static void pending_state_on_timeout(pcp_lease_t *lease) {
-  assert(lease);
-  assert(lease->base.request);
-  auto const client = lease->base.client;
-
-  time_t const max_duration = lease->pending.rtx.max_duration;
-  time_t const now = client->time();
-  if (max_duration && now < max_duration) {
-    pcp_failed_state_create(
-        lease,
-        (pcp_response_header_or_error_t){.has_value = false,
-                                         .error = ETIMEDOUT},
-        lease->base.request);
-    return;
-  }
-
-  uint8_t const max_count = lease->pending.rtx.max_count;
-  if (max_count && max_count < ++lease->pending.rtx.count) {
-    pcp_failed_state_create(
-        lease,
-        (pcp_response_header_or_error_t){.has_value = false,
-                                         .error = ETIMEDOUT},
-        lease->base.request);
-    return;
-  }
-
-  auto const packet = lease->pending.base.request;
-  CALL(&client->transport, send,
-       (pcp_transport_const_view_t){.size = packet->size, .data = packet->data},
-       (pcp_transport_on_send_t){
-           .fn = (pcp_transport_on_send_callback_t)pending_state_on_send,
-           .userdata = lease});
-}
-
-void pcp_lease_on_recv(pcp_lease_t *lease,
-                       pcp_transport_t *transport,
-                       pcp_response_t const *response) {
-  switch (lease->base.state) {
-  case PENDING:
-    pending_state_on_recv(lease, transport, response);
-    break;
+static void lease_on_timeout(pcp_lease_t *lease) {
+  switch (lease->state) {
   case ACTIVE:
-    active_state_on_recv(lease, transport, response);
+    lease_enter_renewing(lease);
+    if (lease->state == RENEWING) {
+      lease_send(lease);
+    }
     break;
-  case RENEWING:
-    renewing_state_on_recv(lease, transport, response);
+  case PENDING: {
+    pcp_rtx_timer_t *retry = &lease->pending.rtx;
+    time_t const now = lease->common.time();
+    if (lease_retry_expired(retry, now)) {
+      pcp_failed_state_create(
+          lease, (pcp_response_header_or_error_t){.has_value = false,
+                                                  .error = ETIMEDOUT});
+      return;
+    }
+    auto const next = retry->advance(retry, now);
+    if (!next.should_retry) {
+      pcp_failed_state_create(
+          lease, (pcp_response_header_or_error_t){.has_value = false,
+                                                  .error = ETIMEDOUT});
+      return;
+    }
+    retry->timeout = next.timeout;
+    if (lease_arm_timer(lease, next.timeout)) {
+      lease_send(lease);
+    }
     break;
-  case ERROR:
-    error_state_on_recv(lease, transport, response);
+  }
+  case RENEWING: {
+    pcp_rtx_timer_t *retry = &lease->renewing.rtx;
+    time_t const now = lease->common.time();
+    if (lease_retry_expired(retry, now)) {
+      pcp_failed_state_create(
+          lease, (pcp_response_header_or_error_t){.has_value = false,
+                                                  .error = ETIMEDOUT});
+      return;
+    }
+    auto const next = retry->advance(retry, now);
+    if (!next.should_retry) {
+      pcp_failed_state_create(
+          lease, (pcp_response_header_or_error_t){.has_value = false,
+                                                  .error = ETIMEDOUT});
+      return;
+    }
+    retry->timeout = next.timeout;
+    if (lease_arm_timer(lease, next.timeout)) {
+      lease_send(lease);
+    }
     break;
+  }
   case FAILED:
-    failed_state_on_recv(lease, transport, response);
     break;
+  }
+}
+
+void pcp_lease_on_recv(pcp_lease_t *lease, pcp_response_t const *response) {
+  if (lease->state != FAILED) {
+    lease_on_response(lease, response);
   }
 }
 
 void pcp_pending_state_create(pcp_lease_t *lease,
-                              pcp_client_internal_t *client,
+                              pcp_transport_t transport,
+                              time_t (*time)(),
                               packet_t *request) {
   assert(lease);
-  assert(client);
-  assert(client->transport.send);
+  assert(transport.send);
+  assert(transport.add_timer);
+  assert(transport.remove_timer);
+  assert(time);
   assert(request);
+  lease->common = (pcp_lease_common_t){.transport = transport,
+                                       .time = time,
+                                       .request = request};
+  lease_enter_pending(lease,
+                      (pcp_transport_timeout_t){
+                          .seconds = (1.0 + rand_in_range(-0.1, 0.1)) * 3.0});
+}
 
-  static constexpr time_t PCP_IRT = 3;
-  static constexpr time_t PCP_MRT = 1024;
-  static constexpr time_t PCP_MRD = 0;
-  static constexpr uint8_t PCP_MRC = 0;
-
-  pcp_transport_timeout_t const timeout = {
-      .seconds = (1 + rand_in_range(-0.1, 0.1)) * PCP_IRT};
-  auto const timer_result =
-      CALL(&client->transport, add_timer, timeout,
-                    (pcp_transport_on_timer_t){.fn = (pcp_transport_on_timer_callback_t)
-                                                   pending_state_on_timeout,
-                    .userdata = lease});
-  assert(timer_result.has_value);
-  pcp_rtx_timer_t const rtx = {
-      .timer = timer_result.value,
-      .timeout = timeout,
-      .max_timeout = PCP_MRT,
-      .max_duration = (PCP_MRD) ? PCP_MRD + client->time() : PCP_MRD,
-      .count = 1,
-      .max_count = PCP_MRC};
-  *lease = (pcp_lease_t){
-      .pending = {.base = {.state = PENDING,
-                           .client = client,
-                           .request = request},
-                  .rtx = rtx}};
+void pcp_lease_start(pcp_lease_t *lease,
+                     pcp_transport_t transport,
+                     time_t (*time)(),
+                     packet_t *request) {
+  pcp_pending_state_create(lease, transport, time, request);
+  if (lease->state == PENDING) {
+    lease_send(lease);
+  }
 }
 
 void pcp_failed_state_create(pcp_lease_t *lease,
-                             pcp_response_header_or_error_t header,
-                             packet_t *request) {
-  assert(!header.has_value ||
-         (header.has_value && !(header.value.code == NETWORK_FAILURE ||
-                                header.value.code == NO_RESOURCES ||
-                                header.value.code == USER_EX_QUOTA ||
-                                header.value.code == CANNOT_PROVIDE_EXTERNAL)));
-  *lease =
-      (pcp_lease_t){.failed = {.base = {.state = FAILED,
-                                        .client = request->client,
-                                        .request = request},
-                               .header = header}};
+                             pcp_response_header_or_error_t header) {
+  assert(lease);
+  lease_remove_timer(lease);
+  *lease = (pcp_lease_t){.state = FAILED,
+                         .common = lease->common,
+                         .failed = {.header = header}};
 }
