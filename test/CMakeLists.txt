@@ -13,7 +13,8 @@ add_executable(tests)
 target_sources(tests
   PRIVATE
     ip.c
-    main.c)
+    main.c
+    test_transport.c)
 
 target_link_libraries(tests
   PRIVATE
