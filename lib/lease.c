@@ -19,6 +19,11 @@ static void lease_on_timeout(pcp_lease_t *lease);
 static void lease_on_send(pcp_lease_t *lease,
                           pcp_transport_size_or_error_t result);
 
+static void lease_delete_on_send(void *userdata,
+                                 pcp_transport_size_or_error_t /*result*/) {
+  packet_destroy(userdata);
+}
+
 static pcp_lease_retry_result_t initial_retry_advance(pcp_rtx_timer_t *retry,
                                                       time_t /*now*/) {
   double const capped = retry->max_timeout ? fmin(2.0 * retry->timeout.seconds,
@@ -328,6 +333,34 @@ void pcp_lease_on_recv(pcp_lease_t *lease, pcp_response_t const *response) {
   if (lease->state != FAILED) {
     lease_on_response(lease, response);
   }
+}
+
+void pcp_lease_destroy(pcp_lease_t *lease) {
+  assert(lease);
+  bool const delete_mapping =
+      lease->state == ACTIVE || lease->state == RENEWING;
+  lease_remove_timer(lease);
+  if (delete_mapping && lease->common.request) {
+    packet_t *request = lease->common.request;
+    lease->common.request = nullptr;
+
+    pcp_transport_view_t view = {.size = request->size, .data = request->data};
+    pcp_request_header_t header = pcp_packet_read_request_header(
+        (pcp_transport_const_view_t){.size = request->size,
+                                     .data = request->data});
+    header.ttl = 0;
+    pcp_packet_write_request_header(view, header);
+
+    CALL(&lease->common.transport, send,
+         (pcp_transport_const_view_t){.size = request->size,
+                                      .data = request->data},
+         (pcp_transport_on_send_t){
+             .fn = lease_delete_on_send,
+             .userdata = request});
+  } else {
+    packet_destroy(lease->common.request);
+  }
+  *lease = (pcp_lease_t){0};
 }
 
 void pcp_pending_state_create(pcp_lease_t *lease,

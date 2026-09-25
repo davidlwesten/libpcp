@@ -83,5 +83,13 @@ pcp_client_result_t pcp_client_create(pcp_transport_t transport) {
 }
 
 void pcp_client_destroy(pcp_client_t *client) {
+  pcp_client_internal_t *internal = client->data;
+  auto const begin = internal->leases;
+  auto const end = begin + PCP_CLIENT_MAX_LEASES;
+  for (auto lease = begin; lease != end; ++lease) {
+    if (lease->has_value) {
+      pcp_lease_destroy(&lease->value);
+    }
+  }
   free(client->data);
 }

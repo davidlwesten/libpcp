@@ -54,9 +54,9 @@ static void test_transport_send(test_transport_t *self,
 
   if (self->outbound_count >= TEST_TRANSPORT_MAX_PACKETS) {
     if (callback.fn) {
-      callback.fn(callback.userdata,
-                  (pcp_transport_size_or_error_t){.has_value = false,
-                                                 .error = ENOSPC});
+      callback.fn(
+          callback.userdata,
+          (pcp_transport_size_or_error_t){.has_value = false, .error = ENOSPC});
     }
     return;
   }
@@ -70,25 +70,24 @@ static void test_transport_send(test_transport_t *self,
   if (callback.fn) {
     callback.fn(callback.userdata,
                 (pcp_transport_size_or_error_t){.has_value = true,
-                                               .value = packet.size});
+                                                .value = packet.size});
   }
 }
 
 static pcp_transport_timer_result_t
 test_transport_add_timer(test_transport_t *self,
-                        pcp_transport_timeout_t delay,
-                        pcp_transport_on_timer_t action) {
+                         pcp_transport_timeout_t delay,
+                         pcp_transport_on_timer_t action) {
   assert(self);
   assert(delay.seconds > 0.0);
 
   for (size_t i = 0; i < TEST_TRANSPORT_MAX_TIMERS; ++i) {
     test_transport_timer_t *timer = &self->timers[i];
     if (!timer->active) {
-      *timer = (test_transport_timer_t){
-          .active = true,
-          .id = self->next_timer_id++,
-          .expiration = self->now + delay.seconds,
-          .action = action};
+      *timer = (test_transport_timer_t){.active = true,
+                                        .id = self->next_timer_id++,
+                                        .expiration = self->now + delay.seconds,
+                                        .action = action};
       return (pcp_transport_timer_result_t){.has_value = true,
                                             .value = timer->id};
     }
@@ -98,7 +97,7 @@ test_transport_add_timer(test_transport_t *self,
 }
 
 static void test_transport_remove_timer(test_transport_t *self,
-                                       pcp_transport_timer_t id) {
+                                        pcp_transport_timer_t id) {
   assert(self);
   for (size_t i = 0; i < TEST_TRANSPORT_MAX_TIMERS; ++i) {
     test_transport_timer_t *timer = &self->timers[i];
@@ -112,17 +111,16 @@ static void test_transport_remove_timer(test_transport_t *self,
 test_transport_result_t test_transport_create(socket_address_t local,
                                               socket_address_t remote) {
   test_transport_t transport = {.local = local,
-                               .remote = remote,
-                               .outbound_count = 0,
-                               .inbound_count = 0,
-                               .timers = {},
-                               .next_timer_id = 1,
-                               .now = 0.0,
-                               .stopped = false,
-                               .closed = false};
+                                .remote = remote,
+                                .outbound_count = 0,
+                                .inbound_count = 0,
+                                .timers = {},
+                                .next_timer_id = 1,
+                                .now = 0.0,
+                                .stopped = false,
+                                .closed = false};
 
-  return (test_transport_result_t){.has_value = true,
-                                  .value = transport};
+  return (test_transport_result_t){.has_value = true, .value = transport};
 }
 
 pcp_transport_t test_transport_interface(test_transport_t *transport) {
@@ -145,7 +143,7 @@ void test_transport_advance(test_transport_t *transport, double seconds) {
 }
 
 void test_transport_enqueue_inbound(test_transport_t *transport,
-                                   pcp_transport_const_view_t packet) {
+                                    pcp_transport_const_view_t packet) {
   assert(transport);
   assert(packet.size <= TEST_TRANSPORT_MAX_PACKET_SIZE);
   assert(transport->inbound_count < TEST_TRANSPORT_MAX_PACKETS);
@@ -157,7 +155,7 @@ void test_transport_enqueue_inbound(test_transport_t *transport,
 }
 
 bool test_transport_take_inbound(test_transport_t *transport,
-                                pcp_transport_const_view_t *packet) {
+                                 pcp_transport_const_view_t *packet) {
   assert(transport);
   assert(packet);
 
@@ -173,7 +171,7 @@ bool test_transport_take_inbound(test_transport_t *transport,
 }
 
 bool test_transport_take_outbound(test_transport_t *transport,
-                                 pcp_transport_const_view_t *packet) {
+                                  pcp_transport_const_view_t *packet) {
   assert(transport);
   assert(packet);
 
@@ -215,7 +213,8 @@ static void test_test_transport_send_and_receive(void) {
   pcp_transport_t iface = test_transport_interface(transport);
 
   const uint8_t payload[] = {0x01, 0x02, 0x03, 0x04};
-  pcp_transport_const_view_t packet = {.size = sizeof(payload), .data = payload};
+  pcp_transport_const_view_t packet = {.size = sizeof(payload),
+                                       .data = payload};
 
   iface.send(iface.data, packet,
              (pcp_transport_on_send_t){.fn = nullptr, .userdata = nullptr});

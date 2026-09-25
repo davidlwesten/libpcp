@@ -13,6 +13,7 @@ add_executable(tests)
 target_sources(tests
   PRIVATE
     ip.c
+    lease.c
     main.c
     test_transport.c)
 

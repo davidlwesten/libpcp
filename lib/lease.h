@@ -79,6 +79,7 @@ typedef struct pcp_lease {
 } pcp_lease_t;
 
 void pcp_lease_on_recv(pcp_lease_t *lease, pcp_response_t const *response);
+void pcp_lease_destroy(pcp_lease_t *lease);
 
 void pcp_pending_state_create(pcp_lease_t *lease,
                               pcp_transport_t transport,
