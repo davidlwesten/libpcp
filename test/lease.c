@@ -2,11 +2,13 @@
 
 #include "client.h"
 #include "lease.h"
-#include "test_transport.h"
+#include "transport.h"
 
 #include <assert.h>
 #include <string.h>
 #include <unity.h>
+
+#include "runner.h"
 
 static pcp_lease_t *first_lease(pcp_client_t *client) {
   pcp_client_internal_t *internal = client->data;

@@ -14,8 +14,8 @@ target_sources(tests
   PRIVATE
     ip.c
     lease.c
-    main.c
-    test_transport.c)
+    transport.c
+    runner.c)
 
 target_link_libraries(tests
   PRIVATE
@@ -38,4 +38,19 @@ else()
   message(WARNING "ASan not configured for compiler: %{CMAKE_C_COMPILER_ID")
 endif()
 
-add_test(NAME tests COMMAND tests)
+set(TEST_CASES
+  test_ip_address_from_in_addr
+  test_ip_address_from_in6_addr
+  test_ip_address_ntop_ipv4
+  test_ip_address_ntop_ipv6
+  test_socket_address_ntop_ipv4
+  test_socket_address_ntop_ipv6
+  test_pending_activation_and_renewal
+  test_destroying_renewing_lease_deletes_mapping
+  test_transient_and_permanent_response_errors
+  test_test_transport_send_and_receive
+  test_test_transport_timers)
+
+foreach(test_case IN LISTS TEST_CASES)
+  add_test(NAME ${test_case} COMMAND tests ${test_case})
+endforeach()

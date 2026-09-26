@@ -4,6 +4,8 @@
 #include <inttypes.h>
 #include <unity.h>
 
+#include "runner.h"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
