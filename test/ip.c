@@ -9,7 +9,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-static void test_ip_address_from_in_addr(void) {
+static void test_ip_address_from_in_addr() {
   struct in_addr addr = {.s_addr = htonl(INADDR_LOOPBACK)};
   const auto result = ip_address_from_in_addr(&addr);
   TEST_ASSERT_EQUAL_UINT8((INADDR_LOOPBACK >> 24) & 0xFF, result.addr[12]);
@@ -18,13 +18,13 @@ static void test_ip_address_from_in_addr(void) {
   TEST_ASSERT_EQUAL_UINT8((INADDR_LOOPBACK >> 0) & 0xFF, result.addr[15]);
 }
 
-static void test_ip_address_from_in6_addr(void) {
+static void test_ip_address_from_in6_addr() {
   struct in6_addr addr = IN6ADDR_LOOPBACK_INIT;
   const auto result = ip_address_from_in6_addr(&addr);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(addr.s6_addr, result.addr, 16);
 }
 
-static void test_ip_address_ntop_ipv4(void) {
+static void test_ip_address_ntop_ipv4() {
   struct in_addr loopback = {0};
   assert(1 == inet_pton(AF_INET, "127.0.0.1", &loopback));
   auto ip = ip_address_from_in_addr(&loopback);
@@ -39,7 +39,7 @@ static void test_ip_address_ntop_ipv4(void) {
   TEST_ASSERT_EQUAL_STRING("0.0.0.0", string);
 }
 
-static void test_ip_address_ntop_ipv6(void) {
+static void test_ip_address_ntop_ipv6() {
   const struct in6_addr loopback = IN6ADDR_LOOPBACK_INIT;
   auto ip = ip_address_from_in6_addr(&loopback);
 
@@ -53,7 +53,7 @@ static void test_ip_address_ntop_ipv6(void) {
   TEST_ASSERT_EQUAL_STRING("::", string);
 }
 
-static void test_socket_address_ntop_ipv4(void) {
+static void test_socket_address_ntop_ipv4() {
   const struct sockaddr_in address = {.sin_family = AF_INET,
                                       .sin_addr = htonl(INADDR_LOOPBACK),
                                       .sin_port = htons(12345)};
@@ -64,7 +64,7 @@ static void test_socket_address_ntop_ipv4(void) {
   TEST_ASSERT_EQUAL_STRING("127.0.0.1:12345", dst);
 }
 
-static void test_socket_address_ntop_ipv6(void) {
+static void test_socket_address_ntop_ipv6() {
   const struct sockaddr_in6 address = {.sin6_family = AF_INET6,
                                        .sin6_addr = IN6ADDR_LOOPBACK_INIT,
                                        .sin6_port = htons(12345)};

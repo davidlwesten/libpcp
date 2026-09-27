@@ -2,6 +2,7 @@
 
 #include <time.h>
 
+#include "allocator.h"
 #include "ip.h"
 #include "option.h"
 #include "protocol.h"
@@ -37,6 +38,7 @@ typedef struct pcp_client_result {
   };
 } pcp_client_result_t;
 
-pcp_client_result_t pcp_client_create(pcp_transport_t transport);
+pcp_client_result_t pcp_client_create(pcp_transport_t transport,
+                                      pcp_allocator_t allocator);
 void pcp_client_destroy(pcp_client_t *client);
 void pcp_client_recv(void *data, pcp_transport_const_view_t packet);

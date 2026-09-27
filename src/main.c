@@ -11,7 +11,8 @@ int main() {
   transport_socket_t transport_socket = transport_socket_result.value;
   pcp_transport_t transport = transport_socket_interface(&transport_socket);
 
-  auto const client_result = pcp_client_create(transport);
+  auto const client_result =
+      pcp_client_create(transport, pcp_allocator_default());
   if (!client_result.has_value) {
     CALL(&transport, close);
     return 1;

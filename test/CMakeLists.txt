@@ -13,6 +13,7 @@ add_executable(tests)
 target_sources(tests
   PRIVATE
     ip.c
+    allocator.c
     lease.c
     transport.c
     runner.c)
@@ -43,6 +44,9 @@ set(TEST_CASES
   test_ip_address_from_in6_addr
   test_ip_address_ntop_ipv4
   test_ip_address_ntop_ipv6
+  test_custom_allocator_lifecycle
+  test_arena_allocator_alignment_and_exhaustion
+  test_arena_allocator_client_lifecycle
   test_socket_address_ntop_ipv4
   test_socket_address_ntop_ipv6
   test_pending_activation_and_renewal

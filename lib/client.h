@@ -17,6 +17,7 @@ typedef struct pcp_client_internal pcp_client_internal_t;
 typedef struct pcp_client_internal {
   pcp_server_t server;
   pcp_transport_t transport;
+  pcp_allocator_t allocator;
   optional_lease_t leases[PCP_CLIENT_MAX_LEASES];
   time_t (*time)();
 } pcp_client_internal_t;

@@ -58,11 +58,11 @@ transport_add_timer(void *data,
     auto const timer = &self->timers[i];
     if (!timer->active) {
       static uint32_t next_id = 0;
-      *timer = (transport_socket_timer_t){
-          .active = true,
-          .id = next_id++,
-          .expiration = (double)time(nullptr) + ttl.seconds,
-          .action = action};
+      *timer = (transport_socket_timer_t){.active = true,
+                                          .id = next_id++,
+                                          .expiration = (double)time(nullptr) +
+                                                        ttl.seconds,
+                                          .action = action};
       return (pcp_transport_timer_result_t){.has_value = true,
                                             .value = timer->id};
     }
@@ -85,8 +85,9 @@ void transport_socket_run(transport_socket_t *self, void *context) {
     auto next = self->timers + TRANSPORT_SOCKET_MAX_TIMERS;
     for (size_t i = 0; i < TRANSPORT_SOCKET_MAX_TIMERS; ++i) {
       auto const timer = &self->timers[i];
-      if (timer->active && (next == self->timers + TRANSPORT_SOCKET_MAX_TIMERS ||
-                            timer->expiration < next->expiration)) {
+      if (timer->active &&
+          (next == self->timers + TRANSPORT_SOCKET_MAX_TIMERS ||
+           timer->expiration < next->expiration)) {
         next = timer;
       }
     }
@@ -111,8 +112,9 @@ void transport_socket_run(transport_socket_t *self, void *context) {
         auto next_due = self->timers + TRANSPORT_SOCKET_MAX_TIMERS;
         for (size_t i = 0; i < TRANSPORT_SOCKET_MAX_TIMERS; ++i) {
           auto const timer = &self->timers[i];
-          if (timer->active && (next_due == self->timers + TRANSPORT_SOCKET_MAX_TIMERS ||
-                                timer->expiration < next_due->expiration)) {
+          if (timer->active &&
+              (next_due == self->timers + TRANSPORT_SOCKET_MAX_TIMERS ||
+               timer->expiration < next_due->expiration)) {
             next_due = timer;
           }
         }
@@ -126,9 +128,10 @@ void transport_socket_run(transport_socket_t *self, void *context) {
       }
       break;
     case 1: {
-      auto const size = CALL_SOCKET(&self->socket, recv,
-                             (pcp_transport_view_t){
-                                 .size = sizeof(packet_data), .data = packet_data});
+      auto const size =
+          CALL_SOCKET(&self->socket, recv,
+                      (pcp_transport_view_t){.size = sizeof(packet_data),
+                                             .data = packet_data});
       if (!size.has_value) {
         break;
       }
@@ -137,9 +140,9 @@ void transport_socket_run(transport_socket_t *self, void *context) {
         return;
       }
 
-      pcp_client_recv(
-          context,
-          (pcp_transport_const_view_t){.size = size.value, .data = packet_data});
+      pcp_client_recv(context,
+                      (pcp_transport_const_view_t){.size = size.value,
+                                                   .data = packet_data});
     } break;
     }
   }

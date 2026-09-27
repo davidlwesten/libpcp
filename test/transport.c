@@ -205,7 +205,7 @@ static void timer_callback(void *userdata) {
   *flag = true;
 }
 
-static void test_test_transport_send_and_receive(void) {
+static void test_test_transport_send_and_receive() {
   const socket_address_t local = {.ip = ip_address_loopback_v4, .port = 1234};
   const socket_address_t remote = {.ip = ip_address_loopback_v4, .port = 4321};
   test_transport_result_t result = test_transport_create(local, remote);
@@ -232,7 +232,7 @@ static void test_test_transport_send_and_receive(void) {
   TEST_ASSERT_EQUAL_UINT8_ARRAY(payload, outbound.data, sizeof(payload));
 }
 
-static void test_test_transport_timers(void) {
+static void test_test_transport_timers() {
   const socket_address_t local = {.ip = ip_address_loopback_v4, .port = 1234};
   const socket_address_t remote = {.ip = ip_address_loopback_v4, .port = 4321};
   test_transport_result_t result = test_transport_create(local, remote);
@@ -256,7 +256,7 @@ static void test_test_transport_timers(void) {
   TEST_ASSERT_FALSE(test_transport_take_outbound(transport, &packet));
 }
 
-void test_transport_tests(void) {
+void test_transport_tests() {
   RUN_TEST(test_test_transport_send_and_receive);
   RUN_TEST(test_test_transport_timers);
 }

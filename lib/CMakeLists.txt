@@ -8,6 +8,7 @@ target_compile_definitions(pcp
 
 target_sources(pcp
   PRIVATE
+    allocator.c
     client.c
     ip.c
     lease.c
@@ -25,6 +26,7 @@ target_sources(pcp
   BASE_DIRS ${CMAKE_SOURCE_DIR}/include
     FILES
       ${CMAKE_SOURCE_DIR}/include/pcp/ip.h
+      ${CMAKE_SOURCE_DIR}/include/pcp/allocator.h
       ${CMAKE_SOURCE_DIR}/include/pcp/option.h
       ${CMAKE_SOURCE_DIR}/include/pcp/pcp.h
       ${CMAKE_SOURCE_DIR}/include/pcp/protocol.h

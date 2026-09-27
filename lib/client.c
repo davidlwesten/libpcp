@@ -9,7 +9,6 @@
 
 #define _GNU_SOURCE
 #include <assert.h>
-#include <malloc.h>
 
 static time_t pcp_client_time() {
 #if !defined(NDEBUG)
@@ -31,11 +30,11 @@ void pcp_client_send(pcp_client_internal_t *client,
                      size_t options_count,
                      pcp_option_t const options[options_count]) {
   uint8_t buffer[PCP_PACKET_MAX_SIZE] = {0};
-  auto const view =
-      pcp_packet_write_request((pcp_transport_view_t){.size = sizeof(buffer), .data = buffer},
-                               request, options_count, options);
+  auto const view = pcp_packet_write_request(
+      (pcp_transport_view_t){.size = sizeof(buffer), .data = buffer}, request,
+      options_count, options);
 
-  auto const packet = packet_create(view.size, view.data);
+  auto const packet = packet_create(client->allocator, view.size, view.data);
   if (packet) {
     auto const lease_begin = client->leases;
     auto const lease_end = lease_begin + PCP_CLIENT_MAX_LEASES;
@@ -54,20 +53,23 @@ void pcp_client_send(pcp_client_internal_t *client,
   }
 }
 
-pcp_client_result_t pcp_client_create(pcp_transport_t transport) {
+pcp_client_result_t pcp_client_create(pcp_transport_t transport,
+                                      pcp_allocator_t allocator) {
   if (!transport.local || !transport.remote || !transport.send ||
-      !transport.add_timer || !transport.remove_timer) {
+      !transport.add_timer || !transport.remove_timer || !allocator.alloc ||
+      !allocator.free) {
     return (pcp_client_result_t){.has_value = false, .error = EINVAL};
   }
 
-  pcp_client_internal_t *internal = malloc(sizeof(pcp_client_internal_t));
+  pcp_client_internal_t *internal =
+      allocator.alloc(allocator.ctx, sizeof(pcp_client_internal_t));
   if (!internal) {
-    free(internal);
     return (pcp_client_result_t){.has_value = false, .error = ENOMEM};
   }
 
   *internal = (pcp_client_internal_t){.server = {},
                                       .transport = transport,
+                                      .allocator = allocator,
                                       .leases = {},
                                       .time = pcp_client_time};
   return (pcp_client_result_t){
@@ -76,10 +78,10 @@ pcp_client_result_t pcp_client_create(pcp_transport_t transport) {
                 .map = (void (*)(void *, pcp_protocol_t, port_t,
                                  socket_address_t, time_t, size_t,
                                  pcp_option_t const[]))pcp_client_map_request,
-                .peer = (void (*)(void *, pcp_protocol_t, port_t,
-                                  socket_address_t, socket_address_t, time_t,
-                                  size_t, pcp_option_t const[]))
-                    pcp_client_peer_request}};
+                .peer =
+                    (void (*)(void *, pcp_protocol_t, port_t, socket_address_t,
+                              socket_address_t, time_t, size_t,
+                              pcp_option_t const[]))pcp_client_peer_request}};
 }
 
 void pcp_client_destroy(pcp_client_t *client) {
@@ -91,5 +93,5 @@ void pcp_client_destroy(pcp_client_t *client) {
       pcp_lease_destroy(&lease->value);
     }
   }
-  free(client->data);
+  internal->allocator.free(internal->allocator.ctx, internal);
 }

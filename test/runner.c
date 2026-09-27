@@ -2,12 +2,13 @@
 
 #include <string.h>
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp() {}
+void tearDown() {}
 
-extern void ip_tests(void);
-extern void lease_tests(void);
-extern void test_transport_tests(void);
+extern void ip_tests();
+extern void allocator_tests();
+extern void lease_tests();
+extern void test_transport_tests();
 
 static const char *selected_test;
 static size_t matched_tests;
@@ -30,7 +31,7 @@ void test_runner_run(UnityTestFunction function, const char *name, int line) {
   UnityDefaultTestRun(function, name, line);
 }
 
-bool test_runner_selected_test_found(void) {
+bool test_runner_selected_test_found() {
   return !selected_test || matched_tests == 1;
 }
 
@@ -42,6 +43,7 @@ int main(int argc, char *argv[]) {
   UNITY_BEGIN();
 
   ip_tests();
+  allocator_tests();
   test_transport_tests();
   lease_tests();
 

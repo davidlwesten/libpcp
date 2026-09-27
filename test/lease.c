@@ -82,7 +82,8 @@ static void enqueue_map_response(test_transport_t *transport,
 
 static pcp_client_t create_map_client(test_transport_t *transport) {
   pcp_transport_t const interface = test_transport_interface(transport);
-  pcp_client_result_t const result = pcp_client_create(interface);
+  pcp_client_result_t const result =
+      pcp_client_create(interface, pcp_allocator_default());
   assert(result.has_value);
   pcp_client_t client = result.value;
   socket_address_t const external = {.ip = ip_address_any_v6, .port = 12345};
@@ -90,7 +91,7 @@ static pcp_client_t create_map_client(test_transport_t *transport) {
   return client;
 }
 
-static void test_pending_activation_and_renewal(void) {
+static void test_pending_activation_and_renewal() {
   socket_address_t const local = {.ip = ip_address_loopback_v4, .port = 12345};
   socket_address_t const remote = {.ip = ip_address_loopback_v4, .port = 5351};
   test_transport_result_t transport_result =
@@ -127,7 +128,7 @@ static void test_pending_activation_and_renewal(void) {
   assert_last_outbound_is_delete(transport);
 }
 
-static void test_destroying_renewing_lease_deletes_mapping(void) {
+static void test_destroying_renewing_lease_deletes_mapping() {
   socket_address_t const local = {.ip = ip_address_loopback_v4, .port = 12345};
   socket_address_t const remote = {.ip = ip_address_loopback_v4, .port = 5351};
   test_transport_result_t transport_result =
@@ -149,7 +150,7 @@ static void test_destroying_renewing_lease_deletes_mapping(void) {
   assert_last_outbound_is_delete(transport);
 }
 
-static void test_transient_and_permanent_response_errors(void) {
+static void test_transient_and_permanent_response_errors() {
   socket_address_t const local = {.ip = ip_address_loopback_v4, .port = 12345};
   socket_address_t const remote = {.ip = ip_address_loopback_v4, .port = 5351};
   test_transport_result_t transport_result =
@@ -180,7 +181,7 @@ static void test_transient_and_permanent_response_errors(void) {
   pcp_client_destroy(&client);
 }
 
-void lease_tests(void) {
+void lease_tests() {
   RUN_TEST(test_pending_activation_and_renewal);
   RUN_TEST(test_destroying_renewing_lease_deletes_mapping);
   RUN_TEST(test_transient_and_permanent_response_errors);

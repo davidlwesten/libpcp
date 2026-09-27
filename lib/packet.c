@@ -6,7 +6,7 @@
 #include "request.h"
 
 #include <assert.h>
-#include <malloc.h>
+#include <stdlib.h>
 #include <string.h>
 
 static constexpr uint8_t PCP_VERSION = 2;
@@ -179,17 +179,25 @@ uint16_t pcp_packet_body_read_uint16_t(pcp_transport_const_view_t src, size_t of
   return pcp_packet_read_uint16_t(src, PCP_HEADER_SIZE + offset);
 }
 
-ip_address_t pcp_packet_body_read_ip_address(pcp_transport_const_view_t src, size_t offset) {
+ip_address_t pcp_packet_body_read_ip_address(pcp_transport_const_view_t src,
+                                             size_t offset) {
   return pcp_packet_read_ip_address(src, PCP_HEADER_SIZE + offset);
 }
 
-packet_t *packet_create(size_t size, uint8_t const src[size]) {
-  auto const packet = (packet_t *)malloc(sizeof(packet_t) + size);
+packet_t *
+packet_create(pcp_allocator_t allocator, size_t size, uint8_t const src[size]) {
+  auto const packet =
+      (packet_t *)allocator.alloc(allocator.ctx, sizeof(packet_t) + size);
   if (packet) {
+    packet->allocator = allocator;
     packet->size = size;
     memcpy(packet->data, src, size);
   }
   return packet;
 }
 
-void packet_destroy(packet_t *packet) { free(packet); }
+void packet_destroy(packet_t *packet) {
+  if (packet) {
+    packet->allocator.free(packet->allocator.ctx, packet);
+  }
+}

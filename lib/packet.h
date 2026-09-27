@@ -1,5 +1,6 @@
 #pragma once
 
+#include <pcp/allocator.h>
 #include <pcp/ip.h>
 #include <pcp/result.h>
 
@@ -12,11 +13,13 @@ constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
 constexpr size_t PCP_HEADER_SIZE = 24;
 
 typedef struct packet {
+  pcp_allocator_t allocator;
   size_t size;
   uint8_t data[];
 } packet_t;
 
-packet_t *packet_create(size_t size, uint8_t const src[size]);
+packet_t *
+packet_create(pcp_allocator_t allocator, size_t size, uint8_t const src[size]);
 void packet_destroy(packet_t *packet);
 
 pcp_transport_const_view_t
