@@ -88,12 +88,10 @@ typedef struct optional_pcp_response_header {
 static optional_pcp_response_header_t
 read_and_validate_response_header(pcp_transport_const_view_t packet) {
   if (packet.size < 4) {
-    // missing header
     return (optional_pcp_response_header_t){.has_value = false};
   }
 
   if (packet.data[0] & 0x80) {
-    // not a response
     return (optional_pcp_response_header_t){.has_value = false};
   }
 
@@ -104,7 +102,6 @@ read_and_validate_response_header(pcp_transport_const_view_t packet) {
   }
 
   if (packet.size < 24 || packet.size > PCP_PACKET_MAX_SIZE) {
-    // invalid response size
     return (optional_pcp_response_header_t){.has_value = false};
   }
 
@@ -118,15 +115,11 @@ static bool pcp_validate_epoch(pcp_epoch_t previous, pcp_epoch_t current) {
 
   assert(current.has_value);
 
-  // step 1: gross backward movement
-
   auto const server_backwards =
       (int64_t)previous.value.server_time - (int64_t)current.value.server_time;
   if (server_backwards > 1) {
     return false;
   }
-
-  // step 2: rate-of-change check
 
   time_t const server_delta =
       current.value.server_time - previous.value.server_time;
@@ -143,8 +136,7 @@ static bool pcp_validate_epoch(pcp_epoch_t previous, pcp_epoch_t current) {
   return true;
 }
 
-void pcp_client_recv(void *data,
-                     pcp_transport_const_view_t packet) {
+void pcp_client_recv(void *data, pcp_transport_const_view_t packet) {
   pcp_client_internal_t *internal = data;
   auto const header = read_and_validate_response_header(packet);
   if (!header.has_value) {
@@ -168,13 +160,21 @@ void pcp_client_recv(void *data,
     return;
   }
 
+  auto const lease_begin = internal->leases;
+  auto const lease_end = lease_begin + PCP_CLIENT_MAX_LEASES;
+  for (auto lease = lease_begin; lease != lease_end; ++lease) {
+    if (lease->has_value &&
+        pcp_lease_on_shutdown_response(&lease->value, &result.value)) {
+      return;
+    }
+  }
+
   pcp_epoch_t const previous = internal->server.epoch;
   internal->server.epoch =
       (pcp_epoch_t){.has_value = true,
                     .value = {.server_time = header.value.epoch,
                               .client_time = internal->time()}};
 
-  // todo: server lost state, renew active mappings
   [[maybe_unused]] bool const server_lost_state =
       !pcp_validate_epoch(previous, internal->server.epoch);
 

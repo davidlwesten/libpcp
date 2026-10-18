@@ -44,8 +44,6 @@ ip_address_from_octets(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 
 ip_address_t ip_address_from_in_addr(const struct in_addr *addr) {
   assert(addr);
-  // construct ipv4-mapped ipv6 address (80 bits of 0s + 16 bits of 1s + 32 bits
-  // of ipv4)
   ip_address_t result = {0};
   memcpy(result.addr, IPV4_MAPPED_PREFIX, 12);
   memcpy(result.addr + 12, &addr->s_addr, sizeof(addr->s_addr));
@@ -79,7 +77,8 @@ optional_ip_address_t ip_address_from_string(const char *ip) {
 static pcp_transport_size_or_error_t
 ip_address_ntop_v4(size_t size, char dst[size], const ip_address_t *src) {
   if (size < (INET_ADDRSTRLEN + 1)) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = ENOBUFS};
+    return (pcp_transport_size_or_error_t){.has_value = false,
+                                           .error = ENOBUFS};
   }
 
   memset(dst, 0, INET_ADDRSTRLEN + 1);
@@ -89,13 +88,15 @@ ip_address_ntop_v4(size_t size, char dst[size], const ip_address_t *src) {
     return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
   }
 
-  return (pcp_transport_size_or_error_t){.has_value = true, .value = strlen(dst)};
+  return (pcp_transport_size_or_error_t){.has_value = true,
+                                         .value = strlen(dst)};
 }
 
 static pcp_transport_size_or_error_t
 ip_address_ntop_v6(size_t size, char dst[size], const ip_address_t *src) {
   if (size < (INET6_ADDRSTRLEN + 1)) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = ENOBUFS};
+    return (pcp_transport_size_or_error_t){.has_value = false,
+                                           .error = ENOBUFS};
   }
 
   memset(dst, 0, INET6_ADDRSTRLEN + 1);
@@ -105,7 +106,8 @@ ip_address_ntop_v6(size_t size, char dst[size], const ip_address_t *src) {
     return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
   }
 
-  return (pcp_transport_size_or_error_t){.has_value = true, .value = strlen(dst)};
+  return (pcp_transport_size_or_error_t){.has_value = true,
+                                         .value = strlen(dst)};
 }
 
 size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src) {
@@ -178,13 +180,11 @@ static bool extract_node_and_service(const char *src,
   const size_t ip_length = (size_t)(end - begin);
   strncpy(node, begin, min(ip_length, INET6_ADDRSTRLEN));
 
-  // find ':'
   begin = strchr(end, ':');
   if (!begin) {
     return false;
   }
 
-  // skip ':' and find new end
   begin = begin + 1;
   end = strchr(begin, '\0');
 
@@ -209,7 +209,7 @@ optional_socket_address_t socket_address_from_string(const char *address) {
   struct addrinfo hints = {0};
   hints.ai_family = AF_UNSPEC;
   hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
-  hints.ai_socktype = SOCK_DGRAM; // specify to constrain to one result
+  hints.ai_socktype = SOCK_DGRAM;
   struct addrinfo *result = nullptr;
   if (0 != getaddrinfo(node, service, &hints, &result)) {
     return (optional_socket_address_t){.has_value = false, .address = {}};
@@ -228,12 +228,13 @@ optional_socket_address_t socket_address_from_string(const char *address) {
                                      .address = socket_address};
 }
 
-static pcp_transport_size_or_error_t socket_address_ntop_v4(size_t size,
-                                              char dst[size],
-                                              const socket_address_t *address) {
-  // need room for INET_ADDSTRLEN + ':xxxxx' + \0;
+static pcp_transport_size_or_error_t
+socket_address_ntop_v4(size_t size,
+                       char dst[size],
+                       const socket_address_t *address) {
   if (size < (INET_ADDRSTRLEN + 7)) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = ENOBUFS};
+    return (pcp_transport_size_or_error_t){.has_value = false,
+                                           .error = ENOBUFS};
   }
 
   auto const ip_size = ip_address_ntop_v4(size, dst, &address->ip);
@@ -249,16 +250,18 @@ static pcp_transport_size_or_error_t socket_address_ntop_v4(size_t size,
   }
 
   return (pcp_transport_size_or_error_t){.has_value = true,
-                           .value = ip_size.value + (size_t)result};
+                                         .value =
+                                             ip_size.value + (size_t)result};
 }
 
-static pcp_transport_size_or_error_t socket_address_ntop_v6(size_t size,
-                                              char dst[size],
-                                              const socket_address_t *address) {
-  // need room for '[' + INET6_ADDRSTRLEN + ']:xxxxx' + '\0';
+static pcp_transport_size_or_error_t
+socket_address_ntop_v6(size_t size,
+                       char dst[size],
+                       const socket_address_t *address) {
   constexpr size_t MIN_SIZE = INET6_ADDRSTRLEN + 9;
   if (size < MIN_SIZE) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = ENOBUFS};
+    return (pcp_transport_size_or_error_t){.has_value = false,
+                                           .error = ENOBUFS};
   }
 
   dst[0] = '[';
@@ -278,7 +281,8 @@ static pcp_transport_size_or_error_t socket_address_ntop_v6(size_t size,
   }
 
   return (pcp_transport_size_or_error_t){.has_value = true,
-                           .value = ip_size.value + 1 + (size_t)result};
+                                         .value = ip_size.value + 1 +
+                                                  (size_t)result};
 }
 
 size_t socket_address_ntop(size_t size,

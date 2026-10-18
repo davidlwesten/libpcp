@@ -50,7 +50,12 @@ set(TEST_CASES
   test_socket_address_ntop_ipv4
   test_socket_address_ntop_ipv6
   test_pending_activation_and_renewal
-  test_destroying_renewing_lease_deletes_mapping
+  test_shutdown_during_renewal_deletes_mapping
+  test_shutdown_waits_for_deletion_response
+  test_shutdown_finishes_when_response_deadline_expires
+  test_shutdown_waits_for_all_send_completions
+  test_shutdown_reports_send_error
+  test_shutdown_reports_timer_creation_error_in_callback
   test_transient_and_permanent_response_errors
   test_test_transport_send_and_receive
   test_test_transport_timers)

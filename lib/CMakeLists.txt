@@ -19,7 +19,6 @@ target_sources(pcp
     result.c
     server.c)
 
-# Public headers
 target_sources(pcp
   PUBLIC
   FILE_SET HEADERS
@@ -33,7 +32,6 @@ target_sources(pcp
       ${CMAKE_SOURCE_DIR}/include/pcp/result.h
       ${CMAKE_SOURCE_DIR}/include/pcp/transport.h)
 
-# Private headers
 target_sources(pcp
   PRIVATE
     FILE_SET private_headers

@@ -13,14 +13,13 @@ constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
 constexpr size_t PCP_HEADER_SIZE = 24;
 
 typedef struct packet {
-  pcp_allocator_t allocator;
   size_t size;
   uint8_t data[];
 } packet_t;
 
 packet_t *
 packet_create(pcp_allocator_t allocator, size_t size, uint8_t const src[size]);
-void packet_destroy(packet_t *packet);
+void packet_destroy(packet_t *packet, pcp_allocator_t allocator);
 
 pcp_transport_const_view_t
 pcp_packet_write_request(pcp_transport_view_t dst,

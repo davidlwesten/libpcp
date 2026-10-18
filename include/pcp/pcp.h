@@ -11,6 +11,9 @@
 #define CALL(POINTER, MEMBER, ...)                                             \
   ((POINTER)->MEMBER((POINTER)->data __VA_OPT__(, ) __VA_ARGS__))
 
+typedef void (*pcp_client_on_shutdown_t)(void *userdata,
+                                         pcp_optional_error_t error);
+
 typedef struct pcp_client {
   void *data;
   void (*map)(void *data,
@@ -28,6 +31,10 @@ typedef struct pcp_client {
                time_t ttl,
                size_t option_count,
                const pcp_option_t[option_count]);
+  void (*shutdown)(void *data,
+                   time_t timeout_seconds,
+                   pcp_client_on_shutdown_t callback,
+                   void *userdata);
 } pcp_client_t;
 
 typedef struct pcp_client_result {

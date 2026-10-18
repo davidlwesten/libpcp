@@ -105,7 +105,7 @@ void transport_socket_run(transport_socket_t *self, void *context) {
     switch (result) {
     case -1:
       assert(errno == EINTR);
-    case 0: // timeout
+    case 0:
       now = (double)time(nullptr);
 
       for (;;) {
@@ -136,7 +136,7 @@ void transport_socket_run(transport_socket_t *self, void *context) {
         break;
       }
 
-      if (size.value == 0) { // socket was closed
+      if (size.value == 0) {
         return;
       }
 

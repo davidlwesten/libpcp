@@ -3,6 +3,10 @@
 
 #include "transport_socket.h"
 
+static void shutdown_complete(void *userdata, pcp_optional_error_t result) {
+  *(bool *)userdata = !result.has_error;
+}
+
 int main() {
   auto const transport_socket_result = transport_socket_connect("127.0.0.1");
   if (!transport_socket_result.has_value) {
@@ -29,11 +33,12 @@ int main() {
   constexpr size_t options_count = sizeof(options) / sizeof(options[0]);
 
   CALL(&client, map, UDP, internal, external, 15, options_count, options);
-  // CALL(client, peer, UDP, internal, external, peer, 90, 0, nullptr);
   transport_socket_run(&transport_socket, client.data);
 
+  bool shutdown_succeeded = false;
+  CALL(&client, shutdown, 0, shutdown_complete, &shutdown_succeeded);
   pcp_client_destroy(&client);
   CALL(&transport, close);
 
-  return 0;
+  return shutdown_succeeded ? 0 : 1;
 }

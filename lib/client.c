@@ -21,7 +21,12 @@ static time_t pcp_client_time() {
   return time.tv_sec;
 }
 
-pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t * /*client*/) {
+static void pcp_client_shutdown(void *data,
+                                time_t timeout_seconds,
+                                pcp_client_on_shutdown_t callback,
+                                void *userdata);
+
+pcp_nonce_t pcp_client_create_nonce(pcp_client_internal_t *) {
   return (pcp_nonce_t){.data = {}};
 }
 
@@ -45,11 +50,11 @@ void pcp_client_send(pcp_client_internal_t *client,
       }
     }
     if (lease == lease_end) {
-      packet_destroy(packet);
+      packet_destroy(packet, client->allocator);
       return;
     }
     lease->has_value = true;
-    pcp_lease_start(&lease->value, client->transport, client->time, packet);
+    pcp_lease_start(&lease->value, client, packet);
   }
 }
 
@@ -71,7 +76,10 @@ pcp_client_result_t pcp_client_create(pcp_transport_t transport,
                                       .transport = transport,
                                       .allocator = allocator,
                                       .leases = {},
-                                      .time = pcp_client_time};
+                                      .time = pcp_client_time,
+                                      .shutdown_error = {.has_error = false},
+                                      .shutdown_callback = nullptr,
+                                      .shutdown_userdata = nullptr};
   return (pcp_client_result_t){
       .has_value = true,
       .value = {.data = internal,
@@ -81,7 +89,72 @@ pcp_client_result_t pcp_client_create(pcp_transport_t transport,
                 .peer =
                     (void (*)(void *, pcp_protocol_t, port_t, socket_address_t,
                               socket_address_t, time_t, size_t,
-                              pcp_option_t const[]))pcp_client_peer_request}};
+                              pcp_option_t const[]))pcp_client_peer_request,
+                .shutdown = pcp_client_shutdown}};
+}
+
+static void pcp_client_shutdown_finish(pcp_client_internal_t *client) {
+  if (!client->shutdown_callback) {
+    return;
+  }
+
+  for (auto lease = client->leases;
+       lease != client->leases + PCP_CLIENT_MAX_LEASES; ++lease) {
+    if (lease->has_value && lease->value.state != SHUTDOWN) {
+      return;
+    }
+  }
+
+  pcp_client_on_shutdown_t callback = client->shutdown_callback;
+  void *userdata = client->shutdown_userdata;
+  pcp_optional_error_t const result = client->shutdown_error;
+  client->shutdown_callback = nullptr;
+  client->shutdown_userdata = nullptr;
+
+  auto const begin = client->leases;
+  auto const end = begin + PCP_CLIENT_MAX_LEASES;
+  for (auto lease = begin; lease != end; ++lease) {
+    if (lease->has_value) {
+      pcp_lease_destroy(&lease->value);
+      lease->has_value = false;
+    }
+  }
+
+  callback(userdata, result);
+}
+
+void pcp_client_on_lease_shutdown_complete(void *userdata,
+                                           pcp_optional_error_t result) {
+  pcp_client_internal_t *client = userdata;
+  assert(client);
+  if (result.has_error && !client->shutdown_error.has_error) {
+    client->shutdown_error = result;
+  }
+  pcp_client_shutdown_finish(client);
+}
+
+static void pcp_client_shutdown(void *data,
+                                time_t timeout_seconds,
+                                pcp_client_on_shutdown_t callback,
+                                void *userdata) {
+  assert(data);
+  assert(callback);
+  assert(timeout_seconds >= 0);
+
+  pcp_client_internal_t *internal = data;
+
+  auto const begin = internal->leases;
+  auto const end = begin + PCP_CLIENT_MAX_LEASES;
+  for (auto lease = begin; lease != end; ++lease) {
+    if (lease->has_value) {
+      pcp_lease_shutdown(&lease->value, timeout_seconds,
+                         pcp_client_on_lease_shutdown_complete, internal);
+    }
+  }
+
+  internal->shutdown_callback = callback;
+  internal->shutdown_userdata = userdata;
+  pcp_client_shutdown_finish(internal);
 }
 
 void pcp_client_destroy(pcp_client_t *client) {

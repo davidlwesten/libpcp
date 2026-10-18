@@ -70,9 +70,15 @@ static void test_transport_send(test_transport_t *self,
   ++self->outbound_count;
 
   if (callback.fn) {
-    callback.fn(callback.userdata,
-                (pcp_transport_size_or_error_t){.has_value = true,
-                                                .value = packet.size});
+    if (self->defer_send_callbacks) {
+      assert(self->pending_send_callback_count < TEST_TRANSPORT_MAX_PACKETS);
+      self->pending_send_callbacks[self->pending_send_callback_count++] =
+          callback;
+    } else {
+      callback.fn(callback.userdata,
+                  (pcp_transport_size_or_error_t){.has_value = true,
+                                                  .value = packet.size});
+    }
   }
 }
 
@@ -117,6 +123,9 @@ test_transport_result_t test_transport_create(socket_address_t local,
                                 .outbound_count = 0,
                                 .inbound_count = 0,
                                 .timers = {},
+                                .pending_send_callbacks = {},
+                                .pending_send_callback_count = 0,
+                                .defer_send_callbacks = false,
                                 .next_timer_id = 1,
                                 .now = 0.0,
                                 .stopped = false,
@@ -142,6 +151,30 @@ void test_transport_advance(test_transport_t *transport, double seconds) {
   assert(transport);
   transport->now += seconds;
   test_transport_fire_due(transport);
+}
+
+bool test_transport_complete_next_send(test_transport_t *transport) {
+  return test_transport_complete_next_send_with_result(
+      transport,
+      (pcp_transport_size_or_error_t){.has_value = true, .value = 0});
+}
+
+bool test_transport_complete_next_send_with_result(
+    test_transport_t *transport,
+    pcp_transport_size_or_error_t result) {
+  assert(transport);
+  if (transport->pending_send_callback_count == 0) {
+    return false;
+  }
+
+  pcp_transport_on_send_t const callback = transport->pending_send_callbacks[0];
+  --transport->pending_send_callback_count;
+  memmove(transport->pending_send_callbacks,
+          transport->pending_send_callbacks + 1,
+          transport->pending_send_callback_count *
+              sizeof(transport->pending_send_callbacks[0]));
+  callback.fn(callback.userdata, result);
+  return true;
 }
 
 void test_transport_enqueue_inbound(test_transport_t *transport,

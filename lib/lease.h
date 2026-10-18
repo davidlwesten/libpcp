@@ -10,7 +10,9 @@ typedef enum pcp_lease_state {
   PENDING,
   ACTIVE,
   RENEWING,
-  FAILED
+  FAILED,
+  SHUTTING_DOWN,
+  SHUTDOWN
 } pcp_lease_state_t;
 
 typedef struct pcp_response_header_or_error {
@@ -28,9 +30,8 @@ typedef struct pcp_lease_retry_result {
   pcp_transport_timeout_t timeout;
 } pcp_lease_retry_result_t;
 
-typedef pcp_lease_retry_result_t (*pcp_lease_retry_advance_t)(
-    pcp_rtx_timer_t *retry,
-    time_t now);
+typedef pcp_lease_retry_result_t (
+    *pcp_lease_retry_advance_t)(pcp_rtx_timer_t *retry, time_t now);
 
 struct pcp_rtx_timer {
   pcp_transport_timer_t timer;
@@ -45,7 +46,16 @@ struct pcp_rtx_timer {
 typedef struct pcp_lease_common {
   pcp_transport_t transport;
   time_t (*time)();
+  struct pcp_client_internal *client;
   packet_t *request;
+  size_t pending_sends;
+  pcp_transport_timer_t shutdown_timer;
+  bool shutdown_response_timer_active;
+  bool shutdown_delete_sent;
+  bool shutdown_response_received;
+  pcp_optional_error_t shutdown_error;
+  void (*shutdown_callback)(void *userdata, pcp_optional_error_t result);
+  void *shutdown_userdata;
 } pcp_lease_common_t;
 
 typedef struct pcp_lease_pending {
@@ -80,14 +90,22 @@ typedef struct pcp_lease {
 
 void pcp_lease_on_recv(pcp_lease_t *lease, pcp_response_t const *response);
 void pcp_lease_destroy(pcp_lease_t *lease);
+void pcp_lease_cancel_shutdown_timer(pcp_lease_t *lease);
+void pcp_lease_shutdown(pcp_lease_t *lease,
+                        time_t timeout_seconds,
+                        void (*callback)(void *userdata,
+                                         pcp_optional_error_t result),
+                        void *userdata);
+bool pcp_lease_on_shutdown_response(pcp_lease_t *lease,
+                                    pcp_response_t const *response);
+bool pcp_lease_response_matches(pcp_lease_t const *lease,
+                                pcp_response_t const *response);
 
 void pcp_pending_state_create(pcp_lease_t *lease,
-                              pcp_transport_t transport,
-                              time_t (*time)(),
+                              struct pcp_client_internal *client,
                               packet_t *packet);
 void pcp_lease_start(pcp_lease_t *lease,
-                     pcp_transport_t transport,
-                     time_t (*time)(),
+                     struct pcp_client_internal *client,
                      packet_t *packet);
 
 void pcp_failed_state_create(pcp_lease_t *lease,

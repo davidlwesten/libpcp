@@ -4,11 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void *pcp_allocator_malloc(void * /*ctx*/, size_t size) {
-  return malloc(size);
-}
+static void *pcp_allocator_malloc(void *, size_t size) { return malloc(size); }
 
-static void pcp_allocator_free(void * /*ctx*/, void *ptr) { free(ptr); }
+static void pcp_allocator_free(void *, void *ptr) { free(ptr); }
 
 typedef struct pcp_arena_header {
   size_t capacity;
@@ -39,7 +37,7 @@ static void *pcp_arena_alloc(void *ctx, size_t size) {
   return buffer + offset;
 }
 
-static void pcp_arena_free(void * /*ctx*/, void * /*ptr*/) {}
+static void pcp_arena_free(void *, void *) {}
 
 pcp_allocator_t pcp_allocator_default() {
   return (pcp_allocator_t){.alloc = pcp_allocator_malloc,

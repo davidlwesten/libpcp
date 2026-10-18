@@ -12,6 +12,11 @@ typedef struct pcp_transport pcp_transport_t;
 
 typedef typeof(errno) errno_t;
 
+typedef struct pcp_optional_error {
+  bool has_error;
+  errno_t error;
+} pcp_optional_error_t;
+
 typedef struct pcp_transport_const_view {
   size_t size;
   uint8_t const *data;
