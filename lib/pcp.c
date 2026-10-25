@@ -1,4 +1,3 @@
-#include <asm-generic/errno.h>
 #include <inttypes.h>
 #include <pcp/pcp.h>
 
@@ -40,7 +39,7 @@ pcp_session_t *pcp_session_begin(pcp_config_t config) {
 }
 
 bool pcp_session_pop_event(pcp_session_t *session,
-                           time_t now,
+                           pcp_time_ms_t now,
                            pcp_event_t *out) {
   assert(session);
   assert(out);
@@ -54,9 +53,11 @@ bool pcp_session_pop_event(pcp_session_t *session,
   return false;
 }
 
-bool pcp_session_pop_packet(pcp_session_t *session, pcp_datagram_t *out) {
+size_t pcp_session_pop_packet(pcp_session_t *session,
+                              size_t size,
+                              uint8_t buffer[size]) {
   assert(session);
-  assert(out);
+  assert(buffer);
 
   for (auto iter = session->mappings; iter; iter = iter->next) {
     if (iter->state != PENDING) {
@@ -65,15 +66,12 @@ bool pcp_session_pop_packet(pcp_session_t *session, pcp_datagram_t *out) {
     // todo: this is wrong! Just doing this for testing
     iter->state = ACTIVE;
 
-    out->id = (pcp_mapping_t)iter;
-    out->size = pcp_packet_write_request(
-        (view_t){.size = out->size, .data = out->data}, &iter->request,
-        &session->config.local, iter->count, iter->options);
-
-    return true;
+    return pcp_packet_write_request((view_t){.size = size, .data = buffer},
+                                    &iter->request, &session->config.local,
+                                    iter->count, iter->options);
   }
 
-  return false;
+  return 0;
 }
 
 void pcp_session_end(pcp_session_t *ctx) {
@@ -81,9 +79,9 @@ void pcp_session_end(pcp_session_t *ctx) {
   FREE(ctx->config.allocator, ctx);
 }
 
-pcp_mapping_or_error_t
+pcp_handle_or_error_t
 pcp_session_map_request(pcp_session_t *session,
-                        time_t lifetime,
+                        pcp_time_s_t lifetime,
                         pcp_protocol_t protocol,
                         port_t port,
                         size_t count,
@@ -94,7 +92,7 @@ pcp_session_map_request(pcp_session_t *session,
       ALLOC(session->config.allocator,
             sizeof(pcp_mapping_t) + sizeof(pcp_option_t) * count);
   if (!mapping) {
-    return (pcp_mapping_or_error_t){
+    return (pcp_handle_or_error_t){
         .has_value = false,
         .error = ENOMEM,
     };
@@ -102,7 +100,7 @@ pcp_session_map_request(pcp_session_t *session,
 
   pcp_nonce_t nonce = {0};
   if (!pcp_session_generate_nonce(session, &nonce)) {
-    return (pcp_mapping_or_error_t){
+    return (pcp_handle_or_error_t){
         .has_value = false,
         .error = ENOTRECOVERABLE,
     };
@@ -134,9 +132,9 @@ pcp_session_map_request(pcp_session_t *session,
   };
 }
 
-pcp_mapping_or_error_t
+pcp_handle_or_error_t
 pcp_session_peer_request(pcp_session_t *session,
-                         time_t lifetime,
+                         pcp_time_s_t lifetime,
                          pcp_protocol_t protocol,
                          port_t port,
                          socket_address_t peer,
@@ -149,7 +147,7 @@ pcp_session_peer_request(pcp_session_t *session,
             sizeof(pcp_mapping_t) + sizeof(pcp_option_t) * count);
 
   if (!mapping) {
-    return (pcp_mapping_or_error_t){
+    return (pcp_handle_or_error_t){
         .has_value = false,
         .error = ENOMEM,
     };
@@ -157,7 +155,7 @@ pcp_session_peer_request(pcp_session_t *session,
 
   pcp_nonce_t nonce = {0};
   if (!pcp_session_generate_nonce(session, &nonce)) {
-    return (pcp_mapping_or_error_t){
+    return (pcp_handle_or_error_t){
         .has_value = false,
         .error = ENOTRECOVERABLE,
     };
@@ -188,4 +186,22 @@ pcp_session_peer_request(pcp_session_t *session,
       .has_value = true,
       .value = pcp_session_add_mapping(session, mapping),
   };
+}
+
+bool pcp_session_pop_timeout(pcp_session_t *session, pcp_time_ms_t *out) {
+  assert(session);
+  assert(out);
+  return false;
+}
+
+void pcp_session_push_datagram(pcp_session_t *session,
+                               pcp_time_ms_t /*now*/,
+                               [[maybe_unused]] size_t size,
+                               uint8_t const data[size]) {
+  assert(session);
+  assert(data);
+}
+
+void pcp_session_push_timeout(pcp_session_t *session, pcp_time_ms_t /*now*/) {
+  assert(session);
 }

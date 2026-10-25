@@ -3,7 +3,7 @@
 #include <pcp/pcp.h>
 
 typedef struct pcp_request {
-  time_t lifetime;
+  pcp_time_s_t lifetime;
   pcp_protocol_t protocol;
   port_t port;
   pcp_opcode_t type;

@@ -2,9 +2,22 @@
 
 #include <errno.h>
 #include <stdint.h>
-#include <time.h>
 
 #include "ip.h"
+
+/**
+ * @brief A point in time in milliseconds
+ *
+ * Must come from a monotonic clock (e.g. CLOCK_MONOTONIC), never wall-clock
+ * time. The origin is up to the application; the library only compares and
+ * subtracts these values.
+ */
+typedef uint64_t pcp_time_ms_t;
+
+/**
+ * @brief A duration in seconds, as carried on the wire (e.g. lifetimes)
+ */
+typedef uint32_t pcp_time_s_t;
 
 typedef struct pcp_allocator {
   void *(*alloc)(void *ctx, size_t size);
@@ -57,16 +70,16 @@ typedef struct pcp_option {
   };
 } pcp_option_t;
 
-typedef uintptr_t pcp_mapping_t;
+typedef uintptr_t pcp_handle_t;
 typedef typeof(errno) errno_t;
 
-typedef struct pcp_mapping_or_error {
+typedef struct pcp_handle_or_error {
   bool has_value;
   union {
-    pcp_mapping_t value;
+    pcp_handle_t value;
     errno_t error;
   };
-} pcp_mapping_or_error_t;
+} pcp_handle_or_error_t;
 
 /**
  * @brief Allocate a new map request
@@ -80,9 +93,9 @@ typedef struct pcp_mapping_or_error {
  *
  * @returns The handle on success or an error otherwise
  */
-pcp_mapping_or_error_t
+pcp_handle_or_error_t
 pcp_session_map_request(pcp_session_t *session,
-                        time_t lifetime,
+                        pcp_time_s_t lifetime,
                         pcp_protocol_t protocol,
                         port_t port,
                         size_t count,
@@ -101,36 +114,37 @@ pcp_session_map_request(pcp_session_t *session,
  *
  * @returns The handle on success or an error otherwise
  */
-pcp_mapping_or_error_t
+pcp_handle_or_error_t
 pcp_session_peer_request(pcp_session_t *session,
-                         time_t lifetime,
+                         pcp_time_s_t lifetime,
                          pcp_protocol_t protocol,
                          port_t port,
                          socket_address_t peer,
                          size_t count,
                          pcp_option_t const options[count]);
 
-typedef struct pcp_datagram {
-  pcp_mapping_t id;
-  size_t size;
-  uint8_t data[];
-} pcp_datagram_t;
+constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
 
 /**
  * @brief Get session's next datagram
  *
- * @param[in] session The session's queue to interact with
- * @param[in] out     The destination buffer. Must not be nullptr
+ * @param[in]  session The session's queue to interact with
+ * @param[in]  size    The size of `buffer`. Should be at least
+ *                     PCP_PACKET_MAX_SIZE
+ * @param[out] buffer  The destination buffer. Must not be nullptr
  *
- * @returns `false` if no more datagrams are available and `true` otherwise
+ * @returns The number of bytes written to `buffer`, or 0 if no more datagrams
+ *          are available
  */
-bool pcp_session_pop_packet(pcp_session_t *session, pcp_datagram_t *out);
+size_t pcp_session_pop_packet(pcp_session_t *session,
+                              size_t size,
+                              uint8_t buffer[size]);
 
 typedef struct pcp_event {
   enum { PCP_EVENT_WRITE, PCP_EVENT_RESPONSE } type;
   union {
     struct {
-      pcp_mapping_t handle;
+      pcp_handle_t handle;
     } response;
   };
 } pcp_event_t;
@@ -145,20 +159,21 @@ typedef struct pcp_event {
  * @returns `true` while events can be processed and `false` otherwise
  */
 bool pcp_session_pop_event(pcp_session_t *session,
-                           time_t now,
+                           pcp_time_ms_t now,
                            pcp_event_t *event);
 
 /**
  * @brief Get the next time point when this session needs interaction
  *
- * @param[in] session The session which to query for a timeout
- * @param[in] out     The destination to which we can write
+ * @param[in]  session The session which to query for a timeout
+ * @param[out] out     The deadline, only written if one exists
  *
- * @returns `true` when a timeout is available and `false` otherwise
+ * @returns `true` if the session has a deadline and `false` otherwise
  */
-bool pcp_session_pop_timeout(pcp_session_t *session, time_t *out);
+bool pcp_session_pop_timeout(pcp_session_t *session, pcp_time_ms_t *out);
 
-void pcp_session_handle_datagram(pcp_session_t *session,
-                                 time_t now,
-                                 pcp_datagram_t const *data);
-void pcp_session_handle_timeout(pcp_session_t *session, time_t now);
+void pcp_session_push_datagram(pcp_session_t *session,
+                               pcp_time_ms_t now,
+                               size_t size,
+                               uint8_t const data[size]);
+void pcp_session_push_timeout(pcp_session_t *session, pcp_time_ms_t now);

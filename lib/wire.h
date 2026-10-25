@@ -3,8 +3,6 @@
 #include <pcp/ip.h>
 #include <pcp/pcp.h>
 
-constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
-
 typedef struct const_view {
   size_t size;
   uint8_t const *data;

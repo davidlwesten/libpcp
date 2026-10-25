@@ -45,23 +45,23 @@ pcp_packet_write_ip_address(view_t dst, size_t cursor, const ip_address_t *ip) {
 
 static void pcp_packet_write_request_header(view_t dst,
                                             pcp_opcode_t opcode,
-                                            time_t lifetime,
+                                            pcp_time_s_t lifetime,
                                             ip_address_t const *internal) {
   assert(opcode == ANNOUNCE || opcode == MAP || opcode == PEER);
   dst.data[0] = PCP_VERSION;
   dst.data[1] = opcode;
-  pcp_packet_write_uint32_t(dst, 4, (uint32_t)lifetime);
+  pcp_packet_write_uint32_t(dst, 4, lifetime);
   pcp_packet_write_ip_address(dst, 8, internal);
 }
 
 static void pcp_packet_write_map_request(view_t dst,
-                                         time_t lifetime,
+                                         pcp_time_s_t lifetime,
                                          ip_address_t const *internal) {
   pcp_packet_write_request_header(dst, MAP, lifetime, internal);
 }
 
 static void pcp_packet_write_peer_request(view_t dst,
-                                          time_t lifetime,
+                                          pcp_time_s_t lifetime,
                                           ip_address_t const *internal) {
   pcp_packet_write_request_header(dst, PEER, lifetime, internal);
 }

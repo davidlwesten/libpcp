@@ -222,7 +222,7 @@ optional_socket_address_t socket_address_from_string(const char *address) {
   // create a local copy to avoid alignment differences between sockaddr (2) and
   // sockaddr_in/sockaddr_in6 (4)
   struct sockaddr_storage local = {0};
-  memcpy(&local, &result->ai_addr, result->ai_addrlen);
+  memcpy(&local, result->ai_addr, result->ai_addrlen);
 
   auto const socket_address =
       result->ai_family == AF_INET
@@ -264,7 +264,7 @@ static struct size_or_error
 socket_address_ntop_v6(size_t size,
                        char dst[size],
                        const socket_address_t *address) {
-  constexpr size_t MIN_SIZE = INET6_ADDRSTRLEN + 9;
+  constexpr size_t MIN_SIZE = INET6_ADDRSTRLEN + 3 + 6;
   if (size < MIN_SIZE) {
     return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }

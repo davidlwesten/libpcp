@@ -14,6 +14,9 @@ typedef struct ip_address {
 
 static_assert(sizeof(ip_address_t) == 16 && alignof(ip_address_t) == 1);
 
+static constexpr size_t IP_ADDRESS_STRING_LENGTH = 56;
+static constexpr size_t SOCKET_ADDRESS_STRING_LENGTH = 56;
+
 static constexpr ip_address_t ip_address_any_v4 = {
     .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 0}};
 static constexpr ip_address_t ip_address_loopback_v4 = {

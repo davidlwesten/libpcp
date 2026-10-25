@@ -3,7 +3,7 @@
 #include <assert.h>
 
 bool pcp_mapping_update(pcp_mapping_t *mapping,
-                        time_t /*now*/,
+                        pcp_time_ms_t /*now*/,
                         pcp_event_t *out) {
   assert(mapping);
   assert(out);
@@ -30,8 +30,8 @@ bool pcp_session_generate_nonce(pcp_session_t const *session,
                                     out->data);
 }
 
-pcp_mapping_t pcp_session_add_mapping(pcp_session_t *session,
-                                      pcp_mapping_t *mapping) {
+pcp_handle_t pcp_session_add_mapping(pcp_session_t *session,
+                                     pcp_mapping_t *mapping) {
   assert(session);
   assert(mapping);
   assert(mapping->next == nullptr);
@@ -39,7 +39,7 @@ pcp_mapping_t pcp_session_add_mapping(pcp_session_t *session,
   if (!session->mappings) {
     session->mappings = mapping;
   } else {
-    pcp_mapping_t *iter = session->mappings;
+    auto iter = session->mappings;
     while (iter->next) {
       iter = iter->next;
     }
@@ -47,5 +47,5 @@ pcp_mapping_t pcp_session_add_mapping(pcp_session_t *session,
     iter->next = mapping;
   }
 
-  return (pcp_mapping_t)mapping;
+  return (pcp_handle_t)mapping;
 }
