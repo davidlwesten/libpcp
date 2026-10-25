@@ -180,7 +180,7 @@ static void test_session_server_reset_requests_again() {
 
 // stands in for a successful response until responses are matched to mappings
 static void activate(pcp_handle_t handle) {
-  ((pcp_mapping_t *)handle)->state = ACTIVE;
+  ((pcp_mapping_t *)handle)->state = (pcp_mapping_state_t){.type = ACTIVE};
 }
 
 static void test_session_server_reset_unmaps_active_mapping() {

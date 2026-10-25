@@ -43,13 +43,10 @@ static pcp_optional_time_ms_t
 pcp_session_deadline(pcp_session_t const *session) {
   pcp_optional_time_ms_t earliest = {.has_value = false, .value = 0};
   for (auto iter = session->mappings; iter; iter = iter->next) {
-    if (iter->state != PENDING) {
-      continue;
-    }
-
-    auto const deadline = pcp_schedule_deadline(&iter->schedule);
-    if (!earliest.has_value || deadline < earliest.value) {
-      earliest = (pcp_optional_time_ms_t){.has_value = true, .value = deadline};
+    auto const deadline = pcp_mapping_deadline(iter);
+    if (deadline.has_value &&
+        (!earliest.has_value || deadline.value < earliest.value)) {
+      earliest = deadline;
     }
   }
 
@@ -85,13 +82,11 @@ void pcp_session_end(pcp_session_t *ctx) {
   FREE(ctx->config.allocator, ctx);
 }
 
-pcp_handle_or_error_t
-pcp_session_map_request(pcp_session_t *session,
-                        pcp_time_s_t lifetime,
-                        pcp_protocol_t protocol,
-                        port_t port,
-                        size_t count,
-                        pcp_option_t const options[count]) {
+static pcp_handle_or_error_t
+pcp_session_request(pcp_session_t *session,
+                    pcp_request_t request,
+                    size_t count,
+                    pcp_option_t const options[count]) {
   assert(session);
 
   pcp_mapping_t *mapping =
@@ -113,32 +108,30 @@ pcp_session_map_request(pcp_session_t *session,
     };
   }
 
-  *mapping = (pcp_mapping_t){
-      .next = nullptr,
-      .request =
-          {
-              .lifetime = lifetime,
-              .protocol = protocol,
-              .port = port,
-              .type = MAP,
-              .map =
-                  {
-                      .external = {0},
-                  },
-          },
-      .nonce = nonce,
-      .state = PENDING,
-      .count = count,
-  };
-
-  memcpy(mapping->options, options, sizeof(pcp_option_t) * count);
-
-  pcp_schedule_start(&mapping->schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_mapping_init(mapping, request, nonce, count, options);
 
   return (pcp_handle_or_error_t){
       .has_value = true,
       .value = pcp_session_add_mapping(session, mapping),
   };
+}
+
+pcp_handle_or_error_t
+pcp_session_map_request(pcp_session_t *session,
+                        pcp_time_s_t lifetime,
+                        pcp_protocol_t protocol,
+                        port_t port,
+                        size_t count,
+                        pcp_option_t const options[count]) {
+  return pcp_session_request(session,
+                             (pcp_request_t){
+                                 .lifetime = lifetime,
+                                 .protocol = protocol,
+                                 .port = port,
+                                 .type = MAP,
+                                 .map = {.external = {0}},
+                             },
+                             count, options);
 }
 
 pcp_handle_or_error_t
@@ -148,56 +141,16 @@ pcp_session_peer_request(pcp_session_t *session,
                          port_t port,
                          socket_address_t peer,
                          size_t count,
-                         const pcp_option_t options[count]) {
-  assert(session);
-
-  pcp_mapping_t *mapping =
-      ALLOC(session->config.allocator,
-            sizeof(pcp_mapping_t) + sizeof(pcp_option_t) * count);
-
-  if (!mapping) {
-    return (pcp_handle_or_error_t){
-        .has_value = false,
-        .error = ENOMEM,
-    };
-  }
-
-  pcp_nonce_t nonce = {0};
-  if (!pcp_nonce_generate(session->config.rng, &nonce)) {
-    FREE(session->config.allocator, mapping);
-    return (pcp_handle_or_error_t){
-        .has_value = false,
-        .error = ENOTRECOVERABLE,
-    };
-  }
-
-  *mapping = (pcp_mapping_t){
-      .next = nullptr,
-      .request =
-          {
-              .lifetime = lifetime,
-              .protocol = protocol,
-              .port = port,
-              .type = PEER,
-              .peer =
-                  {
-                      .external = {0},
-                      .peer = peer,
-                  },
-          },
-      .nonce = nonce,
-      .state = PENDING,
-      .count = count,
-  };
-
-  memcpy(mapping->options, options, sizeof(pcp_option_t) * count);
-
-  pcp_schedule_start(&mapping->schedule, PCP_BACKOFF_DEFAULT, 0);
-
-  return (pcp_handle_or_error_t){
-      .has_value = true,
-      .value = pcp_session_add_mapping(session, mapping),
-  };
+                         pcp_option_t const options[count]) {
+  return pcp_session_request(session,
+                             (pcp_request_t){
+                                 .lifetime = lifetime,
+                                 .protocol = protocol,
+                                 .port = port,
+                                 .type = PEER,
+                                 .peer = {.external = {0}, .peer = peer},
+                             },
+                             count, options);
 }
 
 void pcp_session_on_datagram(pcp_session_t *session,
@@ -215,7 +168,7 @@ void pcp_session_on_datagram(pcp_session_t *session,
 
   if (!pcp_epoch_update(&session->epoch, now, response.epoch)) {
     for (auto iter = session->mappings; iter; iter = iter->next) {
-      pcp_mapping_on_server_reset(iter);
+      pcp_mapping_reset(iter);
     }
   }
 
