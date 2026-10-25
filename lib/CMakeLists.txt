@@ -8,6 +8,7 @@ target_compile_definitions(pcp
 
 target_sources(pcp
   PRIVATE
+    epoch.c
     ip.c
     mapping.c
     pcp.c
@@ -29,8 +30,11 @@ target_sources(pcp
       TYPE HEADERS
       BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
       FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/epoch.h
         ${CMAKE_CURRENT_SOURCE_DIR}/mapping.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/nonce.h
         ${CMAKE_CURRENT_SOURCE_DIR}/request.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/response.h
         ${CMAKE_CURRENT_SOURCE_DIR}/schedule.h
         ${CMAKE_CURRENT_SOURCE_DIR}/session.h
         ${CMAKE_CURRENT_SOURCE_DIR}/wire.h)

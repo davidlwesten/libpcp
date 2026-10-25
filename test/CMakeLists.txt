@@ -12,6 +12,7 @@ add_executable(tests)
 
 target_sources(tests
   PRIVATE
+    epoch.c
     ip.c
     runner.c
     schedule.c
@@ -47,6 +48,14 @@ set(TEST_CASES
   test_ip_address_constants
   test_socket_address_ntop_ipv4
   test_socket_address_ntop_ipv6
+  test_epoch_first_response_valid
+  test_epoch_steady_clocks_valid
+  test_epoch_slack_valid
+  test_epoch_drift_valid
+  test_epoch_server_went_backwards
+  test_epoch_server_too_slow
+  test_epoch_server_too_fast
+  test_epoch_stored_even_if_invalid
   test_schedule_due_at_start
   test_schedule_backoff_without_jitter
   test_schedule_backoff_capped_at_mrt
@@ -61,15 +70,24 @@ set(TEST_CASES
   test_session_never_without_mappings
   test_session_new_request_due_immediately
   test_session_no_send_before_due
-  test_session_send_event_carries_handle
   test_session_send_writes_into_config_buffer
   test_session_retransmits_on_schedule
   test_session_jitter_applied
   test_session_timeout_is_earliest_mapping
   test_session_wakes_at_deadlines
+  test_session_server_reset_requests_again
+  test_session_server_reset_unmaps_active_mapping
+  test_session_server_reset_unmaps_once
+  test_session_server_reset_pending_mapping_not_unmapped
+  test_session_ignores_malformed_datagrams
   test_wire_map_request
   test_wire_map_request_without_suggestion
-  test_wire_peer_request)
+  test_wire_peer_request
+  test_wire_read_map_response
+  test_wire_read_peer_response
+  test_wire_read_error_response
+  test_wire_read_response_skips_options
+  test_wire_read_response_rejects_malformed)
 
 foreach(test_case IN LISTS TEST_CASES)
   add_test(NAME ${test_case} COMMAND tests ${test_case})

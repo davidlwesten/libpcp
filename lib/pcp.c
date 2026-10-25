@@ -1,6 +1,6 @@
 #include <pcp/pcp.h>
 
-#include "request.h"
+#include "response.h"
 #include "session.h"
 #include "wire.h"
 
@@ -31,6 +31,7 @@ pcp_session_t *pcp_session_begin(pcp_config_t config) {
   if (ctx) {
     *ctx = (pcp_session_t){
         .config = config,
+        .epoch = {0},
         .mappings = nullptr,
     };
   }
@@ -200,9 +201,23 @@ pcp_session_peer_request(pcp_session_t *session,
 }
 
 void pcp_session_on_datagram(pcp_session_t *session,
-                             pcp_time_ms_t /*now*/,
-                             [[maybe_unused]] size_t size,
+                             pcp_time_ms_t now,
+                             size_t size,
                              uint8_t const data[size]) {
   assert(session);
   assert(data);
+
+  pcp_response_t response = {0};
+  if (!pcp_packet_read_response((const_view_t){.size = size, .data = data},
+                                &response)) {
+    return;
+  }
+
+  if (!pcp_epoch_update(&session->epoch, now, response.epoch)) {
+    for (auto iter = session->mappings; iter; iter = iter->next) {
+      pcp_mapping_on_server_reset(iter);
+    }
+  }
+
+  // todo: match the response to its mapping
 }

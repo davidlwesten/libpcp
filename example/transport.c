@@ -124,9 +124,20 @@ void transport_loop(pcp_session_t *session) {
         }
         break;
       }
-      case PCP_EVENT_RESPONSE:
-        printf("Got a response for request %" PRIxPTR "\n",
-               event.response.handle);
+      case PCP_EVENT_MAPPED: {
+        char external[SOCKET_ADDRESS_STRING_LENGTH];
+        socket_address_ntop(sizeof(external), external, &event.mapped.external);
+        printf("Mapping %" PRIxPTR " is reachable at %s\n", event.mapped.handle,
+               external);
+        break;
+      }
+      case PCP_EVENT_UNMAPPED:
+        printf("Mapping %" PRIxPTR " lost its external address\n",
+               event.unmapped.handle);
+        break;
+      case PCP_EVENT_FAILED:
+        printf("Mapping %" PRIxPTR " failed with result %d\n",
+               event.failed.handle, event.failed.result);
         break;
       case PCP_EVENT_TIMEOUT:
         deadline = event.timeout.deadline;

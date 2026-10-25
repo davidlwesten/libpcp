@@ -146,11 +146,42 @@ pcp_session_peer_request(pcp_session_t *session,
 
 constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
 
+typedef enum pcp_result : uint8_t {
+  SUCCESS = 0,
+  UNSUPP_VERSION = 1,
+  NOT_AUTHORIZED = 2,
+  MALFORMED_REQUEST = 3,
+  UNSUPP_OPCODE = 4,
+  UNSUPP_OPTION = 5,
+  MALFORMED_OPTION = 6,
+  NETWORK_FAILURE = 7,
+  NO_RESOURCES = 8,
+  UNSUPP_PROTOCOL = 9,
+  USER_EX_QUOTA = 10,
+  CANNOT_PROVIDE_EXTERNAL = 11,
+  ADDRESS_MISMATCH = 12,
+  EXCESSIVE_REMOTE_PEERS = 13,
+} pcp_result_t;
+
+/**
+ * Something the application has to act on, see pcp_session_poll
+ *
+ * For each handle, the external address from PCP_EVENT_MAPPED stays valid until
+ * the next PCP_EVENT_UNMAPPED or PCP_EVENT_FAILED.
+ */
 typedef struct pcp_event {
   enum {
     /// Send the request described by `send`
     PCP_EVENT_SEND,
-    PCP_EVENT_RESPONSE,
+    /// The mapping's external address is now `mapped.external`. Can happen
+    /// again without PCP_EVENT_UNMAPPED in between if the address changes
+    PCP_EVENT_MAPPED,
+    /// The mapping has no valid external address anymore. The session keeps
+    /// requesting it, so PCP_EVENT_MAPPED follows once that succeeds
+    PCP_EVENT_UNMAPPED,
+    /// The server refused the mapping and the session gave up on it. This is
+    /// the last event for the handle
+    PCP_EVENT_FAILED,
     /// Nothing more to do before `timeout.deadline`, see pcp_session_poll
     PCP_EVENT_TIMEOUT,
   } type;
@@ -166,13 +197,20 @@ typedef struct pcp_event {
      * retransmission when it returned this event.
      */
     struct {
-      pcp_handle_t handle;
       size_t size;
       uint8_t const *data;
     } send;
     struct {
       pcp_handle_t handle;
-    } response;
+      socket_address_t external;
+    } mapped;
+    struct {
+      pcp_handle_t handle;
+    } unmapped;
+    struct {
+      pcp_handle_t handle;
+      pcp_result_t result;
+    } failed;
     struct {
       /// Always in the future of the `now` passed to pcp_session_poll. Empty if
       /// nothing is scheduled, i.e. the application can wait indefinitely

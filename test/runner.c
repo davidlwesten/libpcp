@@ -5,6 +5,7 @@
 void setUp() {}
 void tearDown() {}
 
+extern void epoch_tests();
 extern void ip_tests();
 extern void schedule_tests();
 extern void session_tests();
@@ -43,6 +44,7 @@ int main(int argc, char *argv[]) {
   UNITY_BEGIN();
 
   ip_tests();
+  epoch_tests();
   schedule_tests();
   session_tests();
   wire_tests();
