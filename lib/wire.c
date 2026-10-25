@@ -54,7 +54,6 @@ static void pcp_packet_body_write_ip_address(view_t dst,
                                              size_t cursor,
                                              ip_address_t const *ip);
 
-// RFC 6887 §7.1, the reserved field is expected to be zeroed already
 static void pcp_packet_write_request_header(view_t dst,
                                             pcp_opcode_t opcode,
                                             pcp_time_s_t lifetime,
@@ -66,25 +65,35 @@ static void pcp_packet_write_request_header(view_t dst,
   pcp_packet_write_ip_address(dst, 8, internal);
 }
 
-// RFC 6887 §11.1, the reserved field is expected to be zeroed already
+static void pcp_packet_write_mapping_fields(view_t dst,
+                                            pcp_request_t const *src,
+                                            const_view_t nonce,
+                                            socket_address_t const *external) {
+  pcp_packet_body_write_bytes(dst, 0, nonce);
+  pcp_packet_body_write_uint8_t(dst, 12, src->protocol);
+  pcp_packet_body_write_uint16_t(dst, 16, src->port);
+  pcp_packet_body_write_uint16_t(dst, 18, external->port);
+  pcp_packet_body_write_ip_address(dst, 20, &external->ip);
+}
+
 static void pcp_packet_write_map_request(view_t dst,
                                          pcp_request_t const *src,
                                          const_view_t nonce,
                                          ip_address_t const *internal) {
   assert(src->type == MAP);
   pcp_packet_write_request_header(dst, MAP, src->lifetime, internal);
-
-  pcp_packet_body_write_bytes(dst, 0, nonce);
-  pcp_packet_body_write_uint8_t(dst, 12, src->protocol);
-  pcp_packet_body_write_uint16_t(dst, 16, src->port);
-  pcp_packet_body_write_uint16_t(dst, 18, src->map.external.port);
-  pcp_packet_body_write_ip_address(dst, 20, &src->map.external.ip);
+  pcp_packet_write_mapping_fields(dst, src, nonce, &src->map.external);
 }
 
 static void pcp_packet_write_peer_request(view_t dst,
-                                          pcp_time_s_t lifetime,
+                                          pcp_request_t const *src,
+                                          const_view_t nonce,
                                           ip_address_t const *internal) {
-  pcp_packet_write_request_header(dst, PEER, lifetime, internal);
+  assert(src->type == PEER);
+  pcp_packet_write_request_header(dst, PEER, src->lifetime, internal);
+  pcp_packet_write_mapping_fields(dst, src, nonce, &src->peer.external);
+  pcp_packet_body_write_uint16_t(dst, 36, src->peer.peer.port);
+  pcp_packet_body_write_ip_address(dst, 40, &src->peer.peer.ip);
 }
 
 static void pcp_packet_write_option_header(view_t dst,
@@ -146,9 +155,8 @@ size_t pcp_packet_write_request(view_t dst,
   // takes care of every reserved field, so the writers can skip them
   memset(dst.data, 0, PCP_REQUEST_SIZE[src->type]);
 
-  (src->type == MAP)
-      ? pcp_packet_write_map_request(dst, src, nonce, internal)
-      : pcp_packet_write_peer_request(dst, src->lifetime, internal);
+  (src->type == MAP) ? pcp_packet_write_map_request(dst, src, nonce, internal)
+                     : pcp_packet_write_peer_request(dst, src, nonce, internal);
 
   size_t cursor = PCP_REQUEST_SIZE[src->type];
 

@@ -68,7 +68,8 @@ set(TEST_CASES
   test_session_timeout_is_earliest_mapping
   test_session_wakes_at_deadlines
   test_wire_map_request
-  test_wire_map_request_without_suggestion)
+  test_wire_map_request_without_suggestion
+  test_wire_peer_request)
 
 foreach(test_case IN LISTS TEST_CASES)
   add_test(NAME ${test_case} COMMAND tests ${test_case})
