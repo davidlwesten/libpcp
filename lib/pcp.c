@@ -129,7 +129,10 @@ pcp_session_map_request(pcp_session_t *session,
                                  .protocol = protocol,
                                  .port = port,
                                  .type = MAP,
-                                 .map = {.external = {0}},
+                                 .map =
+                                     {
+                                         .external = {0},
+                                     },
                              },
                              count, options);
 }
@@ -148,7 +151,11 @@ pcp_session_peer_request(pcp_session_t *session,
                                  .protocol = protocol,
                                  .port = port,
                                  .type = PEER,
-                                 .peer = {.external = {0}, .peer = peer},
+                                 .peer =
+                                     {
+                                         .external = {0},
+                                         .peer = peer,
+                                     },
                              },
                              count, options);
 }
@@ -170,7 +177,13 @@ void pcp_session_on_datagram(pcp_session_t *session,
     for (auto iter = session->mappings; iter; iter = iter->next) {
       pcp_mapping_reset(iter);
     }
+
+    // the response may just as well be a stale one from before a restart, and
+    // every mapping is requested again anyway, so don't act on it
+    return;
   }
 
-  // todo: match the response to its mapping
+  for (auto iter = session->mappings; iter; iter = iter->next) {
+    pcp_mapping_on_response(iter, &response, now);
+  }
 }

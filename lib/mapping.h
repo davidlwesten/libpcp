@@ -4,23 +4,41 @@
 
 #include "nonce.h"
 #include "request.h"
+#include "response.h"
 #include "schedule.h"
 
 bool pcp_nonce_generate(pcp_rng_t rng, pcp_nonce_t *out);
+
+// What the server granted
+typedef struct pcp_mapping_lease {
+  socket_address_t external;
+  pcp_time_ms_t expiry;
+} pcp_mapping_lease_t;
 
 // Only changed by the pcp_mapping_enter_* functions in mapping.c, which replace
 // it as a whole so no state inherits another state's data
 typedef struct pcp_mapping_state {
   enum {
     PENDING,
+    CONFIRMED, // granted, PCP_EVENT_MAPPED is yet to be emitted
     ACTIVE,
-    LOST, // was ACTIVE, PCP_EVENT_UNMAPPED is yet to be emitted
+    LOST,    // was ACTIVE, PCP_EVENT_UNMAPPED is yet to be emitted
+    REFUSED, // refused, PCP_EVENT_FAILED is yet to be emitted
     FAILED,
   } type;
   union {
     struct {
       pcp_schedule_t schedule;
     } pending;
+    struct {
+      pcp_mapping_lease_t lease;
+    } confirmed;
+    struct {
+      pcp_mapping_lease_t lease;
+    } active;
+    struct {
+      pcp_result_t result;
+    } refused;
   };
 } pcp_mapping_state_t;
 
@@ -43,6 +61,14 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
                       pcp_nonce_t nonce,
                       size_t count,
                       pcp_option_t const options[count]);
+
+/**
+ * @brief Handle a response from the server, ignoring it unless it belongs to
+ *        the mapping
+ */
+void pcp_mapping_on_response(pcp_mapping_t *mapping,
+                             pcp_response_t const *response,
+                             pcp_time_ms_t now);
 
 /**
  * @brief Request the mapping again because the server lost its state

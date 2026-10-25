@@ -76,9 +76,19 @@ set(TEST_CASES
   test_session_timeout_is_earliest_mapping
   test_session_wakes_at_deadlines
   test_session_server_reset_requests_again
+  test_session_success_maps
+  test_session_mapping_expires
+  test_session_temporary_error_retries_later
+  test_session_permanent_error_fails
+  test_session_unknown_result_fails
+  test_session_response_matches_its_mapping_only
+  test_session_peer_response_must_match_remote_peer
+  test_session_duplicate_response_ignored
   test_session_server_reset_unmaps_active_mapping
   test_session_server_reset_unmaps_once
   test_session_server_reset_pending_mapping_not_unmapped
+  test_session_server_reset_before_mapped_event
+  test_session_response_revealing_reset_not_applied
   test_session_ignores_malformed_datagrams
   test_wire_map_request
   test_wire_map_request_without_suggestion

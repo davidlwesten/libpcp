@@ -143,15 +143,73 @@ static void test_session_timeout_is_earliest_mapping() {
   end();
 }
 
-// delivers a well-formed MAP response with the given epoch time, whose body
-// doesn't match any mapping
+static void write_uint32(uint8_t dst[4], uint32_t value) {
+  dst[0] = (uint8_t)(value >> 24);
+  dst[1] = (uint8_t)(value >> 16);
+  dst[2] = (uint8_t)(value >> 8);
+  dst[3] = (uint8_t)value;
+}
+
+static ip_address_t const external_ip = {
+    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 203, 0, 113, 7}};
+static constexpr port_t external_port = 54321;
+
+// delivers a well-formed response with the given epoch time. With a mapping it
+// answers that mapping's request (with `peer` replacing its remote peer if
+// given), otherwise its body doesn't match any mapping
+static void deliver(pcp_time_ms_t now,
+                    pcp_time_s_t epoch,
+                    pcp_mapping_t const *mapping,
+                    pcp_result_t result,
+                    pcp_time_s_t lifetime,
+                    socket_address_t const *peer) {
+  uint8_t data[80] = {0x02, 0x81, 0x00, result};
+  size_t size = 60;
+  write_uint32(data + 4, lifetime);
+  write_uint32(data + 8, epoch);
+
+  if (mapping) {
+    auto const request = &mapping->request;
+    data[1] = (uint8_t)(0x80 | request->type);
+    memcpy(data + 24, mapping->nonce.data, sizeof(mapping->nonce.data));
+    data[36] = request->protocol;
+    data[40] = (uint8_t)(request->port >> 8);
+    data[41] = (uint8_t)request->port;
+
+    if (request->type == PEER) {
+      auto const remote = peer ? peer : &request->peer.peer;
+      data[60] = (uint8_t)(remote->port >> 8);
+      data[61] = (uint8_t)remote->port;
+      memcpy(data + 64, remote->ip.addr, sizeof(remote->ip.addr));
+      size = 80;
+    }
+  }
+
+  data[42] = (uint8_t)(external_port >> 8);
+  data[43] = (uint8_t)external_port;
+  memcpy(data + 44, external_ip.addr, sizeof(external_ip.addr));
+
+  pcp_session_on_datagram(session, now, size, data);
+}
+
+// a response that doesn't belong to any mapping
 static void receive_response(pcp_time_ms_t now, pcp_time_s_t epoch) {
-  uint8_t data[60] = {0x02, 0x81};
-  data[8] = (uint8_t)(epoch >> 24);
-  data[9] = (uint8_t)(epoch >> 16);
-  data[10] = (uint8_t)(epoch >> 8);
-  data[11] = (uint8_t)epoch;
-  pcp_session_on_datagram(session, now, sizeof(data), data);
+  deliver(now, epoch, nullptr, SUCCESS, 0, nullptr);
+}
+
+// the server's answer to `handle`'s request, with an epoch time that stays
+// consistent with `now`
+static void respond(pcp_handle_t handle,
+                    pcp_time_ms_t now,
+                    pcp_result_t result,
+                    pcp_time_s_t lifetime) {
+  deliver(now, (pcp_time_s_t)(1'000 + now / 1'000),
+          (pcp_mapping_t const *)handle, result, lifetime, nullptr);
+}
+
+// polls the event the application should get next
+static pcp_event_t next_event(pcp_time_ms_t now) {
+  return pcp_session_poll(session, now);
 }
 
 static void test_session_server_reset_requests_again() {
@@ -178,26 +236,173 @@ static void test_session_server_reset_requests_again() {
   end();
 }
 
-// stands in for a successful response until responses are matched to mappings
-static void activate(pcp_handle_t handle) {
-  ((pcp_mapping_t *)handle)->state = (pcp_mapping_state_t){.type = ACTIVE};
+// gets `handle` mapped by the server and checks the application learns that
+static void establish(pcp_handle_t handle, pcp_time_ms_t now) {
+  TEST_ASSERT_EQUAL_size_t(1, send_due(now));
+  respond(handle, now, SUCCESS, 3600);
+
+  auto const event = next_event(now);
+  TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
+}
+
+static void test_session_success_maps() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  respond(handle, 500, SUCCESS, 3600);
+
+  auto const event = next_event(500);
+  TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(external_ip.addr, event.mapped.external.ip.addr,
+                                16);
+  TEST_ASSERT_EQUAL_UINT16(external_port, event.mapped.external.port);
+
+  // no more retransmissions, just the lifetime running out
+  TEST_ASSERT_EQUAL_size_t(0, send_due(500));
+  TEST_ASSERT_EQUAL_UINT64(500 + 3'600'000, deadline);
+  end();
+}
+
+static void test_session_mapping_expires() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  TEST_ASSERT_EQUAL_size_t(0, send_due(3'599'999));
+
+  // the application learns its address is gone, and it's requested again
+  auto const event = next_event(3'600'000);
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3'600'000));
+  TEST_ASSERT_EQUAL_UINT64(3'603'000, deadline);
+  end();
+}
+
+static void test_session_temporary_error_retries_later() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  TEST_ASSERT_EQUAL_UINT64(3'000, deadline);
+
+  // the server asks us to wait 30s, which the application doesn't hear about
+  respond(handle, 500, NO_RESOURCES, 30);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(500));
+  TEST_ASSERT_EQUAL_UINT64(30'500, deadline);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(30'499));
+
+  // then a fresh backoff
+  TEST_ASSERT_EQUAL_size_t(1, send_due(30'500));
+  TEST_ASSERT_EQUAL_UINT64(33'500, deadline);
+  end();
+}
+
+static void test_session_permanent_error_fails() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  respond(handle, 500, NOT_AUTHORIZED, 0);
+
+  auto event = next_event(500);
+  TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(handle, event.failed.handle);
+  TEST_ASSERT_EQUAL(NOT_AUTHORIZED, event.failed.result);
+
+  // nothing left to do for it, ever
+  event = next_event(500);
+  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, event.type);
+  TEST_ASSERT_FALSE(event.timeout.deadline.has_value);
+  end();
+}
+
+static void test_session_unknown_result_fails() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  respond(handle, 500, (pcp_result_t)200, 0);
+
+  auto const event = next_event(500);
+  TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, event.type);
+  TEST_ASSERT_EQUAL(200, event.failed.result);
+  end();
+}
+
+static void test_session_response_matches_its_mapping_only() {
+  begin(100);
+  auto const first = map();
+  rng_value = 101; // a different nonce for the second mapping
+  auto const second = map();
+  rng_value = 100; // and no jitter again
+  TEST_ASSERT_EQUAL_size_t(2, send_due(0));
+
+  respond(second, 500, SUCCESS, 3600);
+
+  auto const event = next_event(500);
+  TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(second, event.mapped.handle);
+
+  // the first one is still being requested
+  TEST_ASSERT_EQUAL_size_t(0, send_due(500));
+  TEST_ASSERT_EQUAL_UINT64(3'000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3'000));
+
+  respond(first, 3'500, SUCCESS, 3600);
+  TEST_ASSERT_EQUAL_UINT64(first, next_event(3'500).mapped.handle);
+  end();
+}
+
+static void test_session_peer_response_must_match_remote_peer() {
+  begin(100);
+  socket_address_t const remote = {.ip =
+                                       ip_address_from_octets(198, 51, 100, 1),
+                                   .port = 443};
+  auto const handle =
+      pcp_session_peer_request(session, 3600, TCP, 1234, remote, 0, nullptr);
+  TEST_ASSERT_TRUE(handle.has_value);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  // same nonce, protocol and port, but a different remote peer
+  socket_address_t const other = {.ip = remote.ip, .port = 444};
+  deliver(500, 1'000, (pcp_mapping_t const *)handle.value, SUCCESS, 3600,
+          &other);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(500));
+
+  deliver(600, 1'000, (pcp_mapping_t const *)handle.value, SUCCESS, 3600,
+          nullptr);
+  TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, next_event(600).type);
+  end();
+}
+
+static void test_session_duplicate_response_ignored() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  // e.g. the answer to a retransmission of the same request
+  respond(handle, 1'000, SUCCESS, 3600);
+  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, next_event(1'000).type);
+  end();
 }
 
 static void test_session_server_reset_unmaps_active_mapping() {
   begin(100);
   auto const handle = map();
-  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  activate(handle);
+  establish(handle, 0);
 
   receive_response(1'000, 1'000);
   receive_response(2'000, 3);
 
   // first the application learns the address is gone, then it's requested again
-  auto event = pcp_session_poll(session, 2'000);
+  auto event = next_event(2'000);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
   TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
 
-  event = pcp_session_poll(session, 2'000);
+  event = next_event(2'000);
   TEST_ASSERT_EQUAL(PCP_EVENT_SEND, event.type);
 
   TEST_ASSERT_EQUAL_size_t(0, send_due(2'000));
@@ -208,8 +413,7 @@ static void test_session_server_reset_unmaps_active_mapping() {
 static void test_session_server_reset_unmaps_once() {
   begin(100);
   auto const handle = map();
-  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  activate(handle);
+  establish(handle, 0);
 
   // two resets before the application polls still mean one lost address
   receive_response(1'000, 1'000);
@@ -217,7 +421,7 @@ static void test_session_server_reset_unmaps_once() {
   receive_response(3'000, 1'000);
   receive_response(4'000, 3);
 
-  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, pcp_session_poll(session, 4'000).type);
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(4'000).type);
   TEST_ASSERT_EQUAL_size_t(1, send_due(4'000));
   end();
 }
@@ -232,6 +436,33 @@ static void test_session_server_reset_pending_mapping_not_unmapped() {
 
   // it never had an address, so it's just requested again
   TEST_ASSERT_EQUAL_size_t(1, send_due(2'000));
+  end();
+}
+
+static void test_session_server_reset_before_mapped_event() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  // granted, but the server restarts before the application polls
+  respond(handle, 500, SUCCESS, 3600);
+  receive_response(1'000, 3);
+
+  // the application never saw the address, so neither MAPPED nor UNMAPPED
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  end();
+}
+
+static void test_session_response_revealing_reset_not_applied() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  receive_response(500, 1'000);
+
+  // matches the request, but its epoch says the server lost its state, so it
+  // might as well be stale
+  deliver(1'000, 3, (pcp_mapping_t const *)handle, SUCCESS, 3600, nullptr);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
   end();
 }
 
@@ -274,8 +505,18 @@ void session_tests() {
   RUN_TEST(test_session_timeout_is_earliest_mapping);
   RUN_TEST(test_session_wakes_at_deadlines);
   RUN_TEST(test_session_server_reset_requests_again);
+  RUN_TEST(test_session_success_maps);
+  RUN_TEST(test_session_mapping_expires);
+  RUN_TEST(test_session_temporary_error_retries_later);
+  RUN_TEST(test_session_permanent_error_fails);
+  RUN_TEST(test_session_unknown_result_fails);
+  RUN_TEST(test_session_response_matches_its_mapping_only);
+  RUN_TEST(test_session_peer_response_must_match_remote_peer);
+  RUN_TEST(test_session_duplicate_response_ignored);
   RUN_TEST(test_session_server_reset_unmaps_active_mapping);
   RUN_TEST(test_session_server_reset_unmaps_once);
   RUN_TEST(test_session_server_reset_pending_mapping_not_unmapped);
+  RUN_TEST(test_session_server_reset_before_mapped_event);
+  RUN_TEST(test_session_response_revealing_reset_not_applied);
   RUN_TEST(test_session_ignores_malformed_datagrams);
 }
