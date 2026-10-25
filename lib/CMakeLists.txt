@@ -10,6 +10,7 @@ target_sources(pcp
   PRIVATE
     ip.c
     pcp.c
+    schedule.c
     session.c
     wire.c)
 
@@ -28,6 +29,7 @@ target_sources(pcp
       BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
       FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/request.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/schedule.h
         ${CMAKE_CURRENT_SOURCE_DIR}/session.h
         ${CMAKE_CURRENT_SOURCE_DIR}/wire.h)
 

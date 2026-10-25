@@ -20,10 +20,10 @@ static constexpr size_t SOCKET_ADDRESS_STRING_LENGTH = 56;
 static constexpr ip_address_t ip_address_any_v4 = {
     .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 0}};
 static constexpr ip_address_t ip_address_loopback_v4 = {
-    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 1, 0, 0, 127}};
+    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 127, 0, 0, 1}};
 static constexpr ip_address_t ip_address_any_v6 = {.addr = {0}};
 static constexpr ip_address_t ip_address_loopback_v6 = {
-    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1}};
+    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
 
 ip_address_t ip_address_from_octets(uint8_t a, uint8_t b, uint8_t c, uint8_t d);
 ip_address_t ip_address_from_in_addr(const struct in_addr *addr);
@@ -53,7 +53,7 @@ socket_address_from_sockaddr_in6(const struct sockaddr_in6 *addr);
 
 typedef struct optional_socket_address {
   bool has_value;
-  socket_address_t address;
+  socket_address_t value;
 } optional_socket_address_t;
 
 optional_socket_address_t socket_address_from_string(const char *address);

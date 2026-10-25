@@ -13,7 +13,9 @@ add_executable(tests)
 target_sources(tests
   PRIVATE
     ip.c
-    runner.c)
+    runner.c
+    schedule.c
+    session.c)
 
 target_link_libraries(tests
   PRIVATE
@@ -41,21 +43,29 @@ set(TEST_CASES
   test_ip_address_from_in6_addr
   test_ip_address_ntop_ipv4
   test_ip_address_ntop_ipv6
-  test_custom_allocator_lifecycle
-  test_arena_allocator_alignment_and_exhaustion
-  test_arena_allocator_client_lifecycle
+  test_ip_address_constants
   test_socket_address_ntop_ipv4
   test_socket_address_ntop_ipv6
-  test_pending_activation_and_renewal
-  test_shutdown_during_renewal_deletes_mapping
-  test_shutdown_waits_for_deletion_response
-  test_shutdown_finishes_when_response_deadline_expires
-  test_shutdown_waits_for_all_send_completions
-  test_shutdown_reports_send_error
-  test_shutdown_reports_timer_creation_error_in_callback
-  test_transient_and_permanent_response_errors
-  test_test_transport_send_and_receive
-  test_test_transport_timers)
+  test_schedule_due_at_start
+  test_schedule_backoff_without_jitter
+  test_schedule_backoff_capped_at_mrt
+  test_schedule_jitter_bounds
+  test_schedule_jitter_wraps_random
+  test_schedule_no_jitter_when_rng_fails
+  test_schedule_next_relative_to_transmission
+  test_schedule_exhausted_by_mrc
+  test_schedule_exhausted_by_mrd
+  test_schedule_mrd_from_first_transmission
+  test_schedule_restart
+  test_session_never_without_mappings
+  test_session_new_request_due_immediately
+  test_session_no_send_before_due
+  test_session_send_event_carries_handle
+  test_session_send_writes_into_config_buffer
+  test_session_retransmits_on_schedule
+  test_session_jitter_applied
+  test_session_timeout_is_earliest_mapping
+  test_session_wakes_at_deadlines)
 
 foreach(test_case IN LISTS TEST_CASES)
   add_test(NAME ${test_case} COMMAND tests ${test_case})

@@ -84,11 +84,37 @@ static void test_socket_address_ntop_ipv6() {
   }
 }
 
+// the constants must match what the system's own definitions convert to
+static void test_ip_address_constants() {
+  struct in_addr const any_v4 = {.s_addr = htonl(INADDR_ANY)};
+  struct in_addr const loopback_v4 = {.s_addr = htonl(INADDR_LOOPBACK)};
+  struct in6_addr const any_v6 = IN6ADDR_ANY_INIT;
+  struct in6_addr const loopback_v6 = IN6ADDR_LOOPBACK_INIT;
+
+  auto expected = ip_address_from_in_addr(&any_v4);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected.addr, ip_address_any_v4.addr, 16);
+  expected = ip_address_from_in_addr(&loopback_v4);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected.addr, ip_address_loopback_v4.addr, 16);
+  expected = ip_address_from_in6_addr(&any_v6);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected.addr, ip_address_any_v6.addr, 16);
+  expected = ip_address_from_in6_addr(&loopback_v6);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected.addr, ip_address_loopback_v6.addr, 16);
+
+  char string[INET6_ADDRSTRLEN + 1];
+  TEST_ASSERT_TRUE(
+      ip_address_ntop(sizeof(string), string, &ip_address_loopback_v4));
+  TEST_ASSERT_EQUAL_STRING("127.0.0.1", string);
+  TEST_ASSERT_TRUE(
+      ip_address_ntop(sizeof(string), string, &ip_address_loopback_v6));
+  TEST_ASSERT_EQUAL_STRING("::1", string);
+}
+
 void ip_tests() {
   RUN_TEST(test_ip_address_from_in_addr);
   RUN_TEST(test_ip_address_from_in6_addr);
   RUN_TEST(test_ip_address_ntop_ipv4);
   RUN_TEST(test_ip_address_ntop_ipv6);
+  RUN_TEST(test_ip_address_constants);
   RUN_TEST(test_socket_address_ntop_ipv4);
   RUN_TEST(test_socket_address_ntop_ipv6);
 }

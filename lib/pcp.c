@@ -1,4 +1,3 @@
-#include <inttypes.h>
 #include <pcp/pcp.h>
 
 #include "request.h"
@@ -25,6 +24,7 @@ pcp_session_t *pcp_session_begin(pcp_config_t config) {
   }
   assert(config.allocator.alloc && config.allocator.free);
   assert(config.rng.random);
+  assert(config.buffer.data && config.buffer.size >= PCP_PACKET_MAX_SIZE);
 
   auto const ctx = (pcp_session_t *)config.allocator.alloc(
       config.allocator.ctx, sizeof(pcp_session_t));
@@ -38,44 +38,49 @@ pcp_session_t *pcp_session_begin(pcp_config_t config) {
   return ctx;
 }
 
-bool pcp_session_pop_event(pcp_session_t *session,
-                           pcp_time_ms_t now,
-                           pcp_event_t *out) {
-  assert(session);
-  assert(out);
-
-  for (auto iter = session->mappings; iter; iter = iter->next) {
-    if (pcp_mapping_update(iter, now, out)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-size_t pcp_session_pop_packet(pcp_session_t *session,
-                              size_t size,
-                              uint8_t buffer[size]) {
-  assert(session);
-  assert(buffer);
-
+static pcp_optional_time_ms_t
+pcp_session_deadline(pcp_session_t const *session) {
+  pcp_optional_time_ms_t earliest = {.has_value = false, .value = 0};
   for (auto iter = session->mappings; iter; iter = iter->next) {
     if (iter->state != PENDING) {
       continue;
     }
-    // todo: this is wrong! Just doing this for testing
-    iter->state = ACTIVE;
 
-    return pcp_packet_write_request((view_t){.size = size, .data = buffer},
-                                    &iter->request, &session->config.local,
-                                    iter->count, iter->options);
+    auto const deadline = pcp_schedule_deadline(&iter->schedule);
+    if (!earliest.has_value || deadline < earliest.value) {
+      earliest = (pcp_optional_time_ms_t){.has_value = true, .value = deadline};
+    }
   }
 
-  return 0;
+  return earliest;
+}
+
+pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now) {
+  assert(session);
+
+  pcp_event_t event = {0};
+  for (auto iter = session->mappings; iter; iter = iter->next) {
+    if (pcp_mapping_update(iter, now, &session->config, &event)) {
+      return event;
+    }
+  }
+
+  // every mapping is up to date with `now`, so all deadlines lie in the future
+  return (pcp_event_t){
+      .type = PCP_EVENT_TIMEOUT,
+      .timeout = {.deadline = pcp_session_deadline(session)},
+  };
 }
 
 void pcp_session_end(pcp_session_t *ctx) {
   assert(ctx && ctx->config.allocator.free);
+
+  for (auto iter = ctx->mappings; iter;) {
+    auto const next = iter->next;
+    FREE(ctx->config.allocator, iter);
+    iter = next;
+  }
+
   FREE(ctx->config.allocator, ctx);
 }
 
@@ -100,6 +105,7 @@ pcp_session_map_request(pcp_session_t *session,
 
   pcp_nonce_t nonce = {0};
   if (!pcp_session_generate_nonce(session, &nonce)) {
+    FREE(session->config.allocator, mapping);
     return (pcp_handle_or_error_t){
         .has_value = false,
         .error = ENOTRECOVERABLE,
@@ -125,6 +131,8 @@ pcp_session_map_request(pcp_session_t *session,
   };
 
   memcpy(mapping->options, options, sizeof(pcp_option_t) * count);
+
+  pcp_schedule_start(&mapping->schedule, PCP_BACKOFF_DEFAULT, 0);
 
   return (pcp_handle_or_error_t){
       .has_value = true,
@@ -155,6 +163,7 @@ pcp_session_peer_request(pcp_session_t *session,
 
   pcp_nonce_t nonce = {0};
   if (!pcp_session_generate_nonce(session, &nonce)) {
+    FREE(session->config.allocator, mapping);
     return (pcp_handle_or_error_t){
         .has_value = false,
         .error = ENOTRECOVERABLE,
@@ -182,16 +191,12 @@ pcp_session_peer_request(pcp_session_t *session,
 
   memcpy(mapping->options, options, sizeof(pcp_option_t) * count);
 
+  pcp_schedule_start(&mapping->schedule, PCP_BACKOFF_DEFAULT, 0);
+
   return (pcp_handle_or_error_t){
       .has_value = true,
       .value = pcp_session_add_mapping(session, mapping),
   };
-}
-
-bool pcp_session_pop_timeout(pcp_session_t *session, pcp_time_ms_t *out) {
-  assert(session);
-  assert(out);
-  return false;
 }
 
 void pcp_session_push_datagram(pcp_session_t *session,
@@ -200,8 +205,4 @@ void pcp_session_push_datagram(pcp_session_t *session,
                                uint8_t const data[size]) {
   assert(session);
   assert(data);
-}
-
-void pcp_session_push_timeout(pcp_session_t *session, pcp_time_ms_t /*now*/) {
-  assert(session);
 }

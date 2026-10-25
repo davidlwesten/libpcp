@@ -14,6 +14,11 @@
  */
 typedef uint64_t pcp_time_ms_t;
 
+typedef struct pcp_optional_time_ms {
+  bool has_value;
+  pcp_time_ms_t value;
+} pcp_optional_time_ms_t;
+
 /**
  * @brief A duration in seconds, as carried on the wire (e.g. lifetimes)
  */
@@ -30,10 +35,20 @@ typedef struct pcp_rng {
   void *ctx;
 } pcp_rng_t;
 
+typedef struct pcp_buffer {
+  size_t size;
+  uint8_t *data;
+} pcp_buffer_t;
+
 typedef struct pcp_config {
   ip_address_t local;
   pcp_allocator_t allocator;
   pcp_rng_t rng;
+  /// Where outgoing packets are written, see PCP_EVENT_SEND. Must hold at least
+  /// PCP_PACKET_MAX_SIZE bytes and stay alive until pcp_session_end. Every
+  /// pcp_session_poll may overwrite it, so the application shouldn't use
+  /// it for anything else
+  pcp_buffer_t buffer;
 } pcp_config_t;
 
 typedef struct pcp_session pcp_session_t;
@@ -91,6 +106,9 @@ typedef struct pcp_handle_or_error {
  * @param[in] count    The number of options that should be included
  * @param[in] options  The option values to attach
  *
+ * The request is due immediately, so the application should poll the session
+ * afterwards, see pcp_session_poll.
+ *
  * @returns The handle on success or an error otherwise
  */
 pcp_handle_or_error_t
@@ -112,6 +130,9 @@ pcp_session_map_request(pcp_session_t *session,
  * @param[in] count    The number of options that should be included
  * @param[in] options  The option values to attach
  *
+ * The request is due immediately, so the application should poll the session
+ * afterwards, see pcp_session_poll.
+ *
  * @returns The handle on success or an error otherwise
  */
 pcp_handle_or_error_t
@@ -125,55 +146,60 @@ pcp_session_peer_request(pcp_session_t *session,
 
 constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
 
-/**
- * @brief Get session's next datagram
- *
- * @param[in]  session The session's queue to interact with
- * @param[in]  size    The size of `buffer`. Should be at least
- *                     PCP_PACKET_MAX_SIZE
- * @param[out] buffer  The destination buffer. Must not be nullptr
- *
- * @returns The number of bytes written to `buffer`, or 0 if no more datagrams
- *          are available
- */
-size_t pcp_session_pop_packet(pcp_session_t *session,
-                              size_t size,
-                              uint8_t buffer[size]);
-
 typedef struct pcp_event {
-  enum { PCP_EVENT_WRITE, PCP_EVENT_RESPONSE } type;
+  enum {
+    /// Send the request described by `send`
+    PCP_EVENT_SEND,
+    PCP_EVENT_RESPONSE,
+    /// Nothing more to do before `timeout.deadline`, see pcp_session_poll
+    PCP_EVENT_TIMEOUT,
+  } type;
   union {
+    /**
+     * The request to send to the server
+     *
+     * `data` points into the buffer from pcp_config_t and is only valid until
+     * the next call to pcp_session_poll, which may write the next request into
+     * the same buffer. The application should send it before polling again. To
+     * send it later (e.g. retrying after send() failed with EAGAIN), copy it
+     * first. Otherwise just drop it: the session already scheduled a
+     * retransmission when it returned this event.
+     */
+    struct {
+      pcp_handle_t handle;
+      size_t size;
+      uint8_t const *data;
+    } send;
     struct {
       pcp_handle_t handle;
     } response;
+    struct {
+      /// Always in the future of the `now` passed to pcp_session_poll. Empty if
+      /// nothing is scheduled, i.e. the application can wait indefinitely
+      pcp_optional_time_ms_t deadline;
+    } timeout;
   };
 } pcp_event_t;
 
 /**
  * @brief Advance the session and get the next event
  *
+ * This drives the session. Call it until it returns PCP_EVENT_TIMEOUT whenever
+ * the application wakes up: when a datagram arrived, the previous deadline
+ * passed, or a request was made. Then wait until `timeout.deadline` (or a
+ * datagram arrives) before polling again.
+ *
+ * Each event is only returned once. Polling invalidates the data of the
+ * previous event, see pcp_event_t::send.
+ *
  * @param[in] session The session to advance
  * @param[in] now     The current time
- * @param[in] event   The next event to handle. Must not be nullptr
  *
- * @returns `true` while events can be processed and `false` otherwise
+ * @returns The next event to handle
  */
-bool pcp_session_pop_event(pcp_session_t *session,
-                           pcp_time_ms_t now,
-                           pcp_event_t *event);
-
-/**
- * @brief Get the next time point when this session needs interaction
- *
- * @param[in]  session The session which to query for a timeout
- * @param[out] out     The deadline, only written if one exists
- *
- * @returns `true` if the session has a deadline and `false` otherwise
- */
-bool pcp_session_pop_timeout(pcp_session_t *session, pcp_time_ms_t *out);
+pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now);
 
 void pcp_session_push_datagram(pcp_session_t *session,
                                pcp_time_ms_t now,
                                size_t size,
                                uint8_t const data[size]);
-void pcp_session_push_timeout(pcp_session_t *session, pcp_time_ms_t now);

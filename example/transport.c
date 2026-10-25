@@ -29,7 +29,7 @@ typedef struct size_or_error {
 static size_or_error_t transport_send(size_t size, uint8_t const data[size]);
 static size_or_error_t transport_recv(size_t size, uint8_t data[size]);
 
-static pcp_time_ms_t now() {
+static pcp_time_ms_t transport_now() {
   struct timespec ts = {0};
   [[maybe_unused]] int const result = clock_gettime(CLOCK_MONOTONIC, &ts);
   assert(0 == result);
@@ -106,50 +106,49 @@ void transport_close() {
 }
 
 void transport_loop(pcp_session_t *session) {
-  // separate buffers so a datagram that couldn't be sent yet isn't clobbered by
-  // an incoming one
+  // outgoing packets live in the session's buffer, see main()
   uint8_t incoming[PCP_PACKET_MAX_SIZE];
-  uint8_t outgoing[PCP_PACKET_MAX_SIZE];
-
-  bool want_write = false;
-  size_t outgoing_size = 0; // non-zero while `outgoing` holds a packet send()
-                            // refused
 
   while (running) {
-    pcp_event_t event = {0};
-    while (pcp_session_pop_event(session, now(), &event)) {
+    // poll until the session tells us how long to wait
+    pcp_optional_time_ms_t deadline = {0};
+    for (bool polling = true; polling;) {
+      auto const event = pcp_session_poll(session, transport_now());
       switch (event.type) {
-      case PCP_EVENT_WRITE:
-        want_write = true;
+      case PCP_EVENT_SEND: {
+        auto const sent = transport_send(event.send.size, event.send.data);
+        if (!sent.has_value) {
+          // includes EAGAIN: rather than waiting for the socket to become
+          // writable, we let the session's retransmission take care of it
+          fprintf(stderr, "send: %s\n", strerror(sent.error));
+        }
         break;
+      }
       case PCP_EVENT_RESPONSE:
         printf("Got a response for request %" PRIxPTR "\n",
                event.response.handle);
+        break;
+      case PCP_EVENT_TIMEOUT:
+        deadline = event.timeout.deadline;
+        polling = false;
         break;
       }
     }
 
     fd_set readable;
-    fd_set writable;
     FD_ZERO(&readable);
-    FD_ZERO(&writable);
     FD_SET(client, &readable);
-    if (want_write) {
-      FD_SET(client, &writable);
-    }
 
-    // without a deadline we block until a datagram or signal arrives
-    pcp_time_ms_t deadline = 0;
-    bool const has_deadline = pcp_session_pop_timeout(session, &deadline);
-
-    pcp_time_ms_t const current = now();
-    pcp_time_ms_t const remaining = deadline > current ? deadline - current : 0;
+    pcp_time_ms_t const current = transport_now();
+    pcp_time_ms_t const remaining =
+        deadline.value > current ? deadline.value - current : 0;
     struct timeval timeout = {
         .tv_sec = (time_t)(remaining / 1000),
         .tv_usec = (suseconds_t)(remaining % 1000 * 1000),
     };
-    switch (select(client + 1, &readable, &writable, nullptr,
-                   has_deadline ? &timeout : nullptr)) {
+    // without a deadline we block until a datagram or signal arrives
+    switch (select(client + 1, &readable, nullptr, nullptr,
+                   deadline.has_value ? &timeout : nullptr)) {
     case -1:
       if (errno == EINTR) { // we'll only retry on interrupt
         continue;
@@ -157,8 +156,7 @@ void transport_loop(pcp_session_t *session) {
       perror("select");
       exit(EXIT_FAILURE);
       break;
-    case 0:
-      pcp_session_push_timeout(session, now());
+    case 0: // the deadline passed, polling at the top of the loop handles it
       break;
     default:
       if (FD_ISSET(client, &readable)) {
@@ -172,29 +170,8 @@ void transport_loop(pcp_session_t *session) {
             }
             break;
           }
-          pcp_session_push_datagram(session, now(), size.value, incoming);
-        }
-      }
-
-      if (FD_ISSET(client, &writable)) {
-        while (true) {
-          if (!outgoing_size) {
-            outgoing_size =
-                pcp_session_pop_packet(session, sizeof(outgoing), outgoing);
-            if (!outgoing_size) {
-              want_write = false;
-              break;
-            }
-          }
-
-          auto const size = transport_send(outgoing_size, outgoing);
-          if (!size.has_value) {
-            if (size.error == EAGAIN || size.error == EWOULDBLOCK) {
-              break; // keep the packet and wait for the next writable event
-            }
-            fprintf(stderr, "send: %s\n", strerror(size.error));
-          }
-          outgoing_size = 0;
+          pcp_session_push_datagram(session, transport_now(), size.value,
+                                    incoming);
         }
       }
       break;

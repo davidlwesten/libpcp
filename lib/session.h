@@ -3,6 +3,7 @@
 #include <pcp/pcp.h>
 
 #include "request.h"
+#include "schedule.h"
 
 typedef struct pcp_nonce {
   uint8_t data[12];
@@ -19,12 +20,14 @@ typedef struct pcp_mapping {
     ACTIVE,
     FAILED,
   } state;
+  pcp_schedule_t schedule;
   size_t count;
   pcp_option_t options[];
 } pcp_mapping_t;
 
 bool pcp_mapping_update(pcp_mapping_t *mapping,
                         pcp_time_ms_t now,
+                        pcp_config_t const *config,
                         pcp_event_t *out);
 
 typedef struct pcp_session {

@@ -17,27 +17,37 @@ const char *address_to_string(socket_address_t const *addr) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    fprintf(stderr, "usage: %s <server-address>:<port>\n", argv[0]);
-    fprintf(stderr, "e.g.   %s 192.168.1.1:5351\n", argv[0]);
-    return EXIT_FAILURE;
+  socket_address_t server = {
+      .ip = ip_address_loopback_v4,
+      .port = 5351,
+  };
+
+  if (argc > 1) {
+    auto const parsed_server = socket_address_from_string(argv[1]);
+    if (!parsed_server.has_value) {
+      fprintf(stderr, "usage: %s <server-address>:<port>\n", argv[0]);
+      fprintf(stderr, "e.g.   %s 192.168.1.1:5351\n", argv[0]);
+      return EXIT_FAILURE;
+    }
+    server = parsed_server.value;
   }
 
-  auto const server = socket_address_from_string(argv[1]);
-  if (!server.has_value) {
-    fprintf(stderr, "invalid server address: %s\n", argv[1]);
-    return EXIT_FAILURE;
-  }
-
-  socket_address_t const local = transport_init(server.address);
+  socket_address_t const local = transport_init(server);
   printf("Client on %s\n", address_to_string(&local));
 
+  uint8_t buffer[PCP_PACKET_MAX_SIZE];
   pcp_config_t config = {.local = local.ip,
                          .allocator = {0},
-                         .rng = {
-                             .ctx = nullptr,
-                             .random = pcp_rng,
+                         .rng =
+                             {
+                                 .ctx = nullptr,
+                                 .random = pcp_rng,
+                             },
+                         .buffer = {
+                             .size = sizeof(buffer),
+                             .data = buffer,
                          }};
+
   pcp_session_t *session = pcp_session_begin(config);
 
   auto const handle =

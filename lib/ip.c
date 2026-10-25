@@ -201,13 +201,19 @@ static bool extract_node_and_service(const char *src,
 
 optional_socket_address_t socket_address_from_string(const char *address) {
   if (!address || strlen(address) < 3) {
-    return (optional_socket_address_t){.has_value = false, .address = {}};
+    return (optional_socket_address_t){
+        .has_value = false,
+        .value = {},
+    };
   }
 
   char node[INET6_ADDRSTRLEN + 1] = {0};
   char service[7] = {0};
   if (!extract_node_and_service(address, node, service)) {
-    return (optional_socket_address_t){.has_value = false, .address = {}};
+    return (optional_socket_address_t){
+        .has_value = false,
+        .value = {},
+    };
   }
 
   struct addrinfo hints = {0};
@@ -216,7 +222,10 @@ optional_socket_address_t socket_address_from_string(const char *address) {
   hints.ai_socktype = SOCK_DGRAM;
   struct addrinfo *result = nullptr;
   if (0 != getaddrinfo(node, service, &hints, &result)) {
-    return (optional_socket_address_t){.has_value = false, .address = {}};
+    return (optional_socket_address_t){
+        .has_value = false,
+        .value = {},
+    };
   }
 
   // create a local copy to avoid alignment differences between sockaddr (2) and
@@ -232,8 +241,10 @@ optional_socket_address_t socket_address_from_string(const char *address) {
 
   freeaddrinfo(result);
 
-  return (optional_socket_address_t){.has_value = true,
-                                     .address = socket_address};
+  return (optional_socket_address_t){
+      .has_value = true,
+      .value = socket_address,
+  };
 }
 
 static struct size_or_error
