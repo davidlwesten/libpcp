@@ -17,6 +17,7 @@ typedef struct pcp_request pcp_request_t;
 
 size_t pcp_packet_write_request(view_t dst,
                                 pcp_request_t const *src,
+                                const_view_t nonce,
                                 ip_address_t const *internal,
                                 size_t count,
                                 pcp_option_t const options[count]);

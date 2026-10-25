@@ -8,6 +8,7 @@ void tearDown() {}
 extern void ip_tests();
 extern void schedule_tests();
 extern void session_tests();
+extern void wire_tests();
 
 static const char *selected_test;
 static size_t matched_tests;
@@ -44,6 +45,7 @@ int main(int argc, char *argv[]) {
   ip_tests();
   schedule_tests();
   session_tests();
+  wire_tests();
 
   int const result = UNITY_END();
   return test_runner_selected_test_found() ? result : 2;

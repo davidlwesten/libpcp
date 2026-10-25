@@ -9,6 +9,7 @@ target_compile_definitions(pcp
 target_sources(pcp
   PRIVATE
     ip.c
+    mapping.c
     pcp.c
     schedule.c
     session.c
@@ -28,6 +29,7 @@ target_sources(pcp
       TYPE HEADERS
       BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
       FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/mapping.h
         ${CMAKE_CURRENT_SOURCE_DIR}/request.h
         ${CMAKE_CURRENT_SOURCE_DIR}/schedule.h
         ${CMAKE_CURRENT_SOURCE_DIR}/session.h

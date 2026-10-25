@@ -104,7 +104,7 @@ pcp_session_map_request(pcp_session_t *session,
   }
 
   pcp_nonce_t nonce = {0};
-  if (!pcp_session_generate_nonce(session, &nonce)) {
+  if (!pcp_nonce_generate(session->config.rng, &nonce)) {
     FREE(session->config.allocator, mapping);
     return (pcp_handle_or_error_t){
         .has_value = false,
@@ -162,7 +162,7 @@ pcp_session_peer_request(pcp_session_t *session,
   }
 
   pcp_nonce_t nonce = {0};
-  if (!pcp_session_generate_nonce(session, &nonce)) {
+  if (!pcp_nonce_generate(session->config.rng, &nonce)) {
     FREE(session->config.allocator, mapping);
     return (pcp_handle_or_error_t){
         .has_value = false,

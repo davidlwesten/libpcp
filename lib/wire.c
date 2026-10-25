@@ -20,6 +20,7 @@ static constexpr size_t PCP_REQUEST_SIZE[] = {
     [PEER] = PCP_PACKET_HEADER_SIZE + 56};
 
 static constexpr uint8_t PCP_VERSION = 2;
+static constexpr size_t PCP_NONCE_SIZE = 12;
 
 static void
 pcp_packet_write_uint16_t(view_t dst, size_t cursor, uint16_t value) {
@@ -43,21 +44,41 @@ pcp_packet_write_ip_address(view_t dst, size_t cursor, const ip_address_t *ip) {
   memcpy(dst.data + cursor, ip->addr, sizeof(ip->addr));
 }
 
+static void
+pcp_packet_body_write_bytes(view_t dst, size_t cursor, const_view_t src);
+static void
+pcp_packet_body_write_uint8_t(view_t dst, size_t cursor, uint8_t value);
+static void
+pcp_packet_body_write_uint16_t(view_t dst, size_t cursor, uint16_t value);
+static void pcp_packet_body_write_ip_address(view_t dst,
+                                             size_t cursor,
+                                             ip_address_t const *ip);
+
+// RFC 6887 §7.1, the reserved field is expected to be zeroed already
 static void pcp_packet_write_request_header(view_t dst,
                                             pcp_opcode_t opcode,
                                             pcp_time_s_t lifetime,
                                             ip_address_t const *internal) {
   assert(opcode == ANNOUNCE || opcode == MAP || opcode == PEER);
   dst.data[0] = PCP_VERSION;
-  dst.data[1] = opcode;
+  dst.data[1] = opcode; // R bit = 0 for requests
   pcp_packet_write_uint32_t(dst, 4, lifetime);
   pcp_packet_write_ip_address(dst, 8, internal);
 }
 
+// RFC 6887 §11.1, the reserved field is expected to be zeroed already
 static void pcp_packet_write_map_request(view_t dst,
-                                         pcp_time_s_t lifetime,
+                                         pcp_request_t const *src,
+                                         const_view_t nonce,
                                          ip_address_t const *internal) {
-  pcp_packet_write_request_header(dst, MAP, lifetime, internal);
+  assert(src->type == MAP);
+  pcp_packet_write_request_header(dst, MAP, src->lifetime, internal);
+
+  pcp_packet_body_write_bytes(dst, 0, nonce);
+  pcp_packet_body_write_uint8_t(dst, 12, src->protocol);
+  pcp_packet_body_write_uint16_t(dst, 16, src->port);
+  pcp_packet_body_write_uint16_t(dst, 18, src->map.external.port);
+  pcp_packet_body_write_ip_address(dst, 20, &src->map.external.ip);
 }
 
 static void pcp_packet_write_peer_request(view_t dst,
@@ -114,13 +135,19 @@ pcp_packet_write_option(view_t dst, size_t cursor, pcp_option_t const *option) {
 
 size_t pcp_packet_write_request(view_t dst,
                                 const pcp_request_t *src,
+                                const_view_t nonce,
                                 const ip_address_t *internal,
                                 size_t count,
                                 pcp_option_t const options[count]) {
   assert(src->type == MAP || src->type == PEER);
+  assert(dst.size >= PCP_REQUEST_SIZE[src->type]);
+  assert(nonce.size == PCP_NONCE_SIZE);
+
+  // takes care of every reserved field, so the writers can skip them
+  memset(dst.data, 0, PCP_REQUEST_SIZE[src->type]);
 
   (src->type == MAP)
-      ? pcp_packet_write_map_request(dst, src->lifetime, internal)
+      ? pcp_packet_write_map_request(dst, src, nonce, internal)
       : pcp_packet_write_peer_request(dst, src->lifetime, internal);
 
   size_t cursor = PCP_REQUEST_SIZE[src->type];
@@ -135,22 +162,25 @@ size_t pcp_packet_write_request(view_t dst,
   return cursor;
 }
 
-void pcp_packet_body_write_bytes(view_t dst, size_t cursor, const_view_t src) {
+static void
+pcp_packet_body_write_bytes(view_t dst, size_t cursor, const_view_t src) {
   assert(dst.size >= (PCP_PACKET_HEADER_SIZE + cursor + src.size));
   memcpy(dst.data + PCP_PACKET_HEADER_SIZE + cursor, src.data, src.size);
 }
 
-void pcp_packet_body_write_uint8_t(view_t dst, size_t cursor, uint8_t value) {
-  assert(dst.size >= (PCP_PACKET_HEADER_SIZE + cursor));
+static void
+pcp_packet_body_write_uint8_t(view_t dst, size_t cursor, uint8_t value) {
+  assert(dst.size > (PCP_PACKET_HEADER_SIZE + cursor));
   dst.data[PCP_PACKET_HEADER_SIZE + cursor] = value;
 }
 
-void pcp_packet_body_write_uint16_t(view_t dst, size_t cursor, uint16_t value) {
+static void
+pcp_packet_body_write_uint16_t(view_t dst, size_t cursor, uint16_t value) {
   pcp_packet_write_uint16_t(dst, PCP_PACKET_HEADER_SIZE + cursor, value);
 }
 
-void pcp_packet_body_write_ip_address(view_t dst,
-                                      size_t cursor,
-                                      ip_address_t const *ip) {
+static void pcp_packet_body_write_ip_address(view_t dst,
+                                             size_t cursor,
+                                             ip_address_t const *ip) {
   pcp_packet_write_ip_address(dst, PCP_PACKET_HEADER_SIZE + cursor, ip);
 }
