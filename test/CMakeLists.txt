@@ -13,9 +13,6 @@ add_executable(tests)
 target_sources(tests
   PRIVATE
     ip.c
-    allocator.c
-    lease.c
-    transport.c
     runner.c)
 
 target_link_libraries(tests

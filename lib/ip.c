@@ -9,8 +9,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#include "types.h"
-
 constexpr char IPV4_MAPPED_PREFIX[] = "\0\0\0\0\0\0\0\0\0\0\xFF\xFF";
 
 static size_t min(size_t a, size_t b) { return a < b ? a : b; }
@@ -74,46 +72,52 @@ optional_ip_address_t ip_address_from_string(const char *ip) {
   return (optional_ip_address_t){.has_value = false, .value = {}};
 }
 
-static pcp_transport_size_or_error_t
+typedef typeof(errno) errno_t;
+
+struct size_or_error {
+  bool has_value;
+  union {
+    size_t value;
+    errno_t error;
+  };
+};
+
+static struct size_or_error
 ip_address_ntop_v4(size_t size, char dst[size], const ip_address_t *src) {
   if (size < (INET_ADDRSTRLEN + 1)) {
-    return (pcp_transport_size_or_error_t){.has_value = false,
-                                           .error = ENOBUFS};
+    return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }
 
   memset(dst, 0, INET_ADDRSTRLEN + 1);
 
   struct in_addr addr = ip_address_to_in_addr(src);
   if (!inet_ntop(AF_INET, &addr, dst, (socklen_t)size)) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
+    return (struct size_or_error){.has_value = false, .error = errno};
   }
 
-  return (pcp_transport_size_or_error_t){.has_value = true,
-                                         .value = strlen(dst)};
+  return (struct size_or_error){.has_value = true, .value = strlen(dst)};
 }
 
-static pcp_transport_size_or_error_t
+static struct size_or_error
 ip_address_ntop_v6(size_t size, char dst[size], const ip_address_t *src) {
   if (size < (INET6_ADDRSTRLEN + 1)) {
-    return (pcp_transport_size_or_error_t){.has_value = false,
-                                           .error = ENOBUFS};
+    return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }
 
   memset(dst, 0, INET6_ADDRSTRLEN + 1);
 
   struct in6_addr addr = ip_address_to_in6_addr(src);
   if (!inet_ntop(AF_INET6, &addr, dst, (socklen_t)size)) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
+    return (struct size_or_error){.has_value = false, .error = errno};
   }
 
-  return (pcp_transport_size_or_error_t){.has_value = true,
-                                         .value = strlen(dst)};
+  return (struct size_or_error){.has_value = true, .value = strlen(dst)};
 }
 
 size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src) {
   assert(src);
 
-  pcp_transport_size_or_error_t result;
+  struct size_or_error result;
   if (ip_address_is_ipv4_mapped(src)) {
     result = ip_address_ntop_v4(size, dst, src);
   } else {
@@ -215,12 +219,16 @@ optional_socket_address_t socket_address_from_string(const char *address) {
     return (optional_socket_address_t){.has_value = false, .address = {}};
   }
 
+  // create a local copy to avoid alignment differences between sockaddr (2) and
+  // sockaddr_in/sockaddr_in6 (4)
+  struct sockaddr_storage local = {0};
+  memcpy(&local, &result->ai_addr, result->ai_addrlen);
+
   auto const socket_address =
       result->ai_family == AF_INET
-          ? socket_address_from_sockaddr_in(
-                (const struct sockaddr_in *)result->ai_addr)
+          ? socket_address_from_sockaddr_in((const struct sockaddr_in *)&local)
           : socket_address_from_sockaddr_in6(
-                (const struct sockaddr_in6 *)result->ai_addr);
+                (const struct sockaddr_in6 *)&local);
 
   freeaddrinfo(result);
 
@@ -228,13 +236,12 @@ optional_socket_address_t socket_address_from_string(const char *address) {
                                      .address = socket_address};
 }
 
-static pcp_transport_size_or_error_t
+static struct size_or_error
 socket_address_ntop_v4(size_t size,
                        char dst[size],
                        const socket_address_t *address) {
   if (size < (INET_ADDRSTRLEN + 7)) {
-    return (pcp_transport_size_or_error_t){.has_value = false,
-                                           .error = ENOBUFS};
+    return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }
 
   auto const ip_size = ip_address_ntop_v4(size, dst, &address->ip);
@@ -246,27 +253,25 @@ socket_address_ntop_v4(size_t size,
 
   int const result = snprintf(dst + ip_size.value, size, ":%hu", address->port);
   if (result < 0) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
+    return (struct size_or_error){.has_value = false, .error = errno};
   }
 
-  return (pcp_transport_size_or_error_t){.has_value = true,
-                                         .value =
-                                             ip_size.value + (size_t)result};
+  return (struct size_or_error){.has_value = true,
+                                .value = ip_size.value + (size_t)result};
 }
 
-static pcp_transport_size_or_error_t
+static struct size_or_error
 socket_address_ntop_v6(size_t size,
                        char dst[size],
                        const socket_address_t *address) {
   constexpr size_t MIN_SIZE = INET6_ADDRSTRLEN + 9;
   if (size < MIN_SIZE) {
-    return (pcp_transport_size_or_error_t){.has_value = false,
-                                           .error = ENOBUFS};
+    return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }
 
   dst[0] = '[';
 
-  pcp_transport_size_or_error_t const ip_size =
+  auto const ip_size =
       ip_address_ntop_v6(INET6_ADDRSTRLEN + 1, dst + 1, &address->ip);
   if (!ip_size.has_value) {
     return ip_size;
@@ -277,12 +282,11 @@ socket_address_ntop_v6(size_t size,
   int const result =
       snprintf(dst + ip_size.value + 1, size, "]:%hu", address->port);
   if (result < 0) {
-    return (pcp_transport_size_or_error_t){.has_value = false, .error = errno};
+    return (struct size_or_error){.has_value = false, .error = errno};
   }
 
-  return (pcp_transport_size_or_error_t){.has_value = true,
-                                         .value = ip_size.value + 1 +
-                                                  (size_t)result};
+  return (struct size_or_error){.has_value = true,
+                                .value = ip_size.value + 1 + (size_t)result};
 }
 
 size_t socket_address_ntop(size_t size,

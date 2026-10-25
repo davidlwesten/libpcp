@@ -6,9 +6,6 @@ void setUp() {}
 void tearDown() {}
 
 extern void ip_tests();
-extern void allocator_tests();
-extern void lease_tests();
-extern void test_transport_tests();
 
 static const char *selected_test;
 static size_t matched_tests;
@@ -43,9 +40,6 @@ int main(int argc, char *argv[]) {
   UNITY_BEGIN();
 
   ip_tests();
-  allocator_tests();
-  test_transport_tests();
-  lease_tests();
 
   int const result = UNITY_END();
   return test_runner_selected_test_found() ? result : 2;

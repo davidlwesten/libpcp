@@ -8,16 +8,10 @@ target_compile_definitions(pcp
 
 target_sources(pcp
   PRIVATE
-    allocator.c
-    client.c
     ip.c
-    lease.c
-    map.c
-    option.c
-    packet.c
-    peer.c
-    result.c
-    server.c)
+    pcp.c
+    session.c
+    wire.c)
 
 target_sources(pcp
   PUBLIC
@@ -25,12 +19,7 @@ target_sources(pcp
   BASE_DIRS ${CMAKE_SOURCE_DIR}/include
     FILES
       ${CMAKE_SOURCE_DIR}/include/pcp/ip.h
-      ${CMAKE_SOURCE_DIR}/include/pcp/allocator.h
-      ${CMAKE_SOURCE_DIR}/include/pcp/option.h
-      ${CMAKE_SOURCE_DIR}/include/pcp/pcp.h
-      ${CMAKE_SOURCE_DIR}/include/pcp/protocol.h
-      ${CMAKE_SOURCE_DIR}/include/pcp/result.h
-      ${CMAKE_SOURCE_DIR}/include/pcp/transport.h)
+      ${CMAKE_SOURCE_DIR}/include/pcp/pcp.h)
 
 target_sources(pcp
   PRIVATE
@@ -38,17 +27,8 @@ target_sources(pcp
       TYPE HEADERS
       BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
       FILES
-        ${CMAKE_CURRENT_SOURCE_DIR}/client.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/lease.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/map.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/packet.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/peer.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/server.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/types.h)
-
-find_library(MATH_LIBRARY m)
-if(MATH_LIBRARY)
-  target_link_libraries(pcp PRIVATE ${MATH_LIBRARY})
-endif()
+        ${CMAKE_CURRENT_SOURCE_DIR}/request.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/session.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/wire.h)
 
 target_link_libraries(pcp PRIVATE project_warnings)

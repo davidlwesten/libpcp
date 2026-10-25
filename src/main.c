@@ -1,44 +1,98 @@
-#include <pcp/option.h>
+#include "wire.h"
 #include <pcp/pcp.h>
 
-#include "transport_socket.h"
+#include <alloca.h>
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-static void shutdown_complete(void *userdata, pcp_optional_error_t result) {
-  *(bool *)userdata = !result.has_error;
-}
+static void pcp_loop(pcp_session_t *session);
+static bool pcp_rng(void * /*ctx*/, size_t count, uint8_t bytes[count]);
 
 int main() {
-  auto const transport_socket_result = transport_socket_connect("127.0.0.1");
-  if (!transport_socket_result.has_value) {
-    return 1;
+  pcp_config_t config = {.local = {0},
+                         .allocator = {0},
+                         .rng = {
+                             .ctx = nullptr,
+                             .random = pcp_rng,
+                         }};
+  pcp_session_t *session = pcp_session_begin(config);
+
+  auto const handle =
+      pcp_session_map_request(session, 1024, UDP, 12345, 0, nullptr);
+  if (!handle.has_value) {
+    fprintf(stderr, "pcp_session_map_request: %s", strerror(handle.error));
+    return EXIT_FAILURE;
   }
-  transport_socket_t transport_socket = transport_socket_result.value;
-  pcp_transport_t transport = transport_socket_interface(&transport_socket);
 
-  auto const client_result =
-      pcp_client_create(transport, pcp_allocator_default());
-  if (!client_result.has_value) {
-    CALL(&transport, close);
-    return 1;
+  pcp_loop(session);
+
+  pcp_session_end(session);
+  return EXIT_SUCCESS;
+}
+
+static void pcp_send(pcp_datagram_t const * /*packet*/) {}
+
+static void pcp_loop(pcp_session_t *session) {
+  pcp_datagram_t *datagram =
+      alloca(sizeof(pcp_datagram_t) + PCP_PACKET_MAX_SIZE);
+  *datagram = (pcp_datagram_t){
+      .id = 0,
+      .size = PCP_PACKET_MAX_SIZE,
+  };
+
+  while (true) {
+    pcp_event_t event = {0};
+    while (pcp_session_pop_event(session, time(nullptr), &event)) {
+      switch (event.type) {
+      case PCP_EVENT_WRITE: {
+        while (pcp_session_pop_packet(session, datagram)) {
+          pcp_send(datagram);
+        }
+        break;
+      }
+      case PCP_EVENT_RESPONSE:
+        printf("Hooray! Got a response for: %lu", event.response.handle);
+        break;
+      }
+    }
   }
-  pcp_client_t client = client_result.value;
-  constexpr port_t internal = 12000;
-  constexpr socket_address_t external = {.ip = ip_address_any_v6,
-                                         .port = 12000};
-  [[maybe_unused]] const socket_address_t peer = {
-      .ip = ip_address_from_octets(192, 168, 8, 2),
-      .port = 12000};
+}
 
-  pcp_option_t options[] = {pcp_option_create_prefer_failure(false)};
-  constexpr size_t options_count = sizeof(options) / sizeof(options[0]);
+static uint32_t pcp_rand() {
+  static uint32_t next = 1;
+  return next = next * 1103515245u + 12345u;
+}
 
-  CALL(&client, map, UDP, internal, external, 15, options_count, options);
-  transport_socket_run(&transport_socket, client.data);
+static bool pcp_rng(void * /*ctx*/, size_t count, uint8_t bytes[count]) {
+  size_t i = 0;
+  for (; i < count / 4; ++i) {
+    uint32_t const next = pcp_rand();
+    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
+    bytes[i * 4 + 1] = (uint8_t)(next >> 8);
+    bytes[i * 4 + 2] = (uint8_t)(next >> 16);
+    bytes[i * 4 + 3] = (uint8_t)(next >> 24);
+  }
 
-  bool shutdown_succeeded = false;
-  CALL(&client, shutdown, 0, shutdown_complete, &shutdown_succeeded);
-  pcp_client_destroy(&client);
-  CALL(&transport, close);
+  uint32_t const next = pcp_rand();
 
-  return shutdown_succeeded ? 0 : 1;
+  switch (count % 4) {
+  case 3:
+    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
+    bytes[i * 4 + 1] = (uint8_t)(next >> 8);
+    bytes[i * 4 + 2] = (uint8_t)(next >> 16);
+    break;
+  case 2:
+    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
+    bytes[i * 4 + 1] = (uint8_t)(next >> 8);
+    break;
+  case 1:
+    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
+    break;
+  case 0:
+    break;
+  }
+
+  return true;
 }
