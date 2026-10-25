@@ -199,10 +199,10 @@ pcp_session_peer_request(pcp_session_t *session,
   };
 }
 
-void pcp_session_push_datagram(pcp_session_t *session,
-                               pcp_time_ms_t /*now*/,
-                               [[maybe_unused]] size_t size,
-                               uint8_t const data[size]) {
+void pcp_session_on_datagram(pcp_session_t *session,
+                             pcp_time_ms_t /*now*/,
+                             [[maybe_unused]] size_t size,
+                             uint8_t const data[size]) {
   assert(session);
   assert(data);
 }

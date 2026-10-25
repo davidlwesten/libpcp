@@ -170,8 +170,8 @@ void transport_loop(pcp_session_t *session) {
             }
             break;
           }
-          pcp_session_push_datagram(session, transport_now(), size.value,
-                                    incoming);
+          pcp_session_on_datagram(session, transport_now(), size.value,
+                                  incoming);
         }
       }
       break;

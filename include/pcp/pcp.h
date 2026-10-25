@@ -199,7 +199,17 @@ typedef struct pcp_event {
  */
 pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now);
 
-void pcp_session_push_datagram(pcp_session_t *session,
-                               pcp_time_ms_t now,
-                               size_t size,
-                               uint8_t const data[size]);
+/**
+ * @brief Hand a datagram received from the PCP server to the session
+ *
+ * The application should poll the session afterwards, see pcp_session_poll.
+ *
+ * @param[in] session The session to update
+ * @param[in] now     The current time
+ * @param[in] size    The size of `data`
+ * @param[in] data    The datagram's payload
+ */
+void pcp_session_on_datagram(pcp_session_t *session,
+                             pcp_time_ms_t now,
+                             size_t size,
+                             uint8_t const data[size]);
