@@ -90,16 +90,16 @@ pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now) {
   };
 }
 
-void pcp_session_end(pcp_session_t *ctx) {
-  assert(ctx && ctx->config.allocator.free);
+void pcp_session_end(pcp_session_t *session) {
+  assert(session && session->config.allocator.free);
 
-  for (auto iter = ctx->mappings; iter;) {
+  for (auto iter = session->mappings; iter;) {
     auto const next = iter->next;
-    FREE(ctx->config.allocator, iter);
+    FREE(session->config.allocator, iter);
     iter = next;
   }
 
-  FREE(ctx->config.allocator, ctx);
+  FREE(session->config.allocator, session);
 }
 
 static pcp_handle_or_error_t
@@ -136,11 +136,9 @@ pcp_session_request(pcp_session_t *session,
     };
   }
 
-  // starts at 1 so 0 is never a valid handle
   auto const handle = ++session->handles;
   pcp_mapping_init(mapping, handle, request, nonce, count, options);
 
-  // the order of the list doesn't matter
   mapping->next = session->mappings;
   session->mappings = mapping;
 
@@ -240,7 +238,6 @@ void pcp_session_release(pcp_session_t *session, pcp_handle_t handle) {
     return;
   }
 
-  // the session frees it once it's RELEASED
   pcp_mapping_release(mapping);
 }
 
@@ -266,7 +263,7 @@ void pcp_session_on_datagram(pcp_session_t *session,
       auto const rng = session->config.rng;
       uint16_t random = 0;
       if (rng.fill(rng.ctx, sizeof(random), (uint8_t *)&random)) {
-        not_before = now + 5'000 * (pcp_time_ms_t)random / UINT16_MAX;
+        not_before = now + 5000 * (pcp_time_ms_t)random / UINT16_MAX;
       }
     }
 

@@ -2,11 +2,6 @@
 
 #include <pcp/pcp.h>
 
-/**
- * @brief Last epoch time we got from the server, and our clock at that point
- *
- * See RFC 6887 section 8.5.
- */
 typedef struct pcp_epoch {
   bool has_previous;
   pcp_time_ms_t client;

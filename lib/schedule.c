@@ -4,11 +4,11 @@
 #include <stdint.h>
 
 // IRT and MRT from RFC 6887 section 8.1.1
-static constexpr pcp_time_ms_t PCP_BACKOFF_IRT = 3'000;
-static constexpr pcp_time_ms_t PCP_BACKOFF_MRT = 1'024'000;
+static constexpr pcp_time_ms_t PCP_BACKOFF_IRT = 3000;
+static constexpr pcp_time_ms_t PCP_BACKOFF_MRT = 1024000;
 
 // minimum gap between renewals (RFC 6887 section 11.2.1)
-static constexpr pcp_time_ms_t PCP_RENEWAL_MIN_INTERVAL = 4'000;
+static constexpr pcp_time_ms_t PCP_RENEWAL_MIN_INTERVAL = 4000;
 
 // returns false if the RNG failed
 static bool random16(pcp_rng_t rng, uint16_t *out) {

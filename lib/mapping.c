@@ -5,7 +5,7 @@
 #include <string.h>
 
 static pcp_time_ms_t pcp_seconds(pcp_time_s_t seconds) {
-  return (pcp_time_ms_t)seconds * 1'000;
+  return (pcp_time_ms_t)seconds * 1000;
 }
 
 // The enter functions overwrite the whole state, so nothing carries over from
@@ -51,14 +51,18 @@ static void pcp_mapping_enter_releasing(pcp_mapping_t *mapping) {
   mapping->request.lifetime = 0;
   mapping->request.map.external = (socket_address_t){0};
 
-  mapping->state = (pcp_mapping_state_t){.type = RELEASING};
+  mapping->state = (pcp_mapping_state_t){
+      .type = RELEASING,
+  };
   pcp_schedule_backoff(&mapping->state.releasing.schedule, PCP_BACKOFF_RELEASE,
                        0);
 }
 
 static void pcp_mapping_enter_released(pcp_mapping_t *mapping) {
   assert(mapping->state.type != RELEASED);
-  mapping->state = (pcp_mapping_state_t){.type = RELEASED};
+  mapping->state = (pcp_mapping_state_t){
+      .type = RELEASED,
+  };
 }
 
 void pcp_mapping_init(pcp_mapping_t *mapping,
@@ -75,10 +79,18 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
       .handle = handle,
       .request = request,
       .nonce = nonce,
-      .state = {.type = PENDING},
-      .last_mapped = {.has_value = false, .value = {}},
+      .state =
+          {
+              .type = PENDING,
+          },
+      .last_mapped =
+          {
+              .has_value = false,
+              .value = {},
+          },
       .count = count,
   };
+
   if (count) {
     memcpy(mapping->options, options, sizeof(pcp_option_t) * count);
   }
@@ -91,8 +103,9 @@ static bool pcp_mapping_matches_body(pcp_mapping_t const *mapping,
                                      pcp_nonce_t const *nonce,
                                      pcp_protocol_t protocol,
                                      port_t port) {
-  return memcmp(nonce->data, mapping->nonce.data, sizeof(nonce->data)) == 0 &&
-         protocol == mapping->request.protocol && port == mapping->request.port;
+  return (memcmp(nonce->data, mapping->nonce.data, sizeof(nonce->data)) == 0) &&
+         (protocol == mapping->request.protocol) &&
+         (port == mapping->request.port);
 }
 
 static bool pcp_mapping_matches(pcp_mapping_t const *mapping,
@@ -187,14 +200,8 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
   assert(response);
   assert(response->type == MAP || response->type == PEER);
 
-  // only these are waiting for responses
-  switch (mapping->state.type) {
-  case PENDING:
-  case ACTIVE:
-  case RELEASING:
-    break;
-  case FAILED:
-  case RELEASED:
+  // only PENDING, ACTIVE, or RELEASING are waiting for responses
+  if (mapping->state.type == FAILED || mapping->state.type == RELEASED) {
     return;
   }
 
@@ -202,8 +209,6 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
     return;
   }
 
-  // done either way. After an error we're not supposed to retry, so the lease
-  // just runs out.
   if (mapping->state.type == RELEASING) {
     pcp_mapping_enter_released(mapping);
     return;

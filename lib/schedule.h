@@ -7,17 +7,11 @@ typedef struct pcp_optional_count {
   uint32_t value;
 } pcp_optional_count_t;
 
-/**
- * @brief Keep retransmitting until there's an answer
- */
 static constexpr pcp_optional_count_t PCP_BACKOFF_UNBOUNDED = {
     .has_value = false,
     .value = 0,
 };
 
-/**
- * @brief For delete requests. If none get an answer the mapping just expires.
- */
 static constexpr pcp_optional_count_t PCP_BACKOFF_RELEASE = {
     .has_value = true,
     .value = 3,
@@ -25,44 +19,33 @@ static constexpr pcp_optional_count_t PCP_BACKOFF_RELEASE = {
 
 typedef struct pcp_schedule {
   enum {
-    /// Request retransmissions (RFC 6887 section 8.1.1)
     PCP_SCHEDULE_BACKOFF,
-    /// Lease renewals (RFC 6887 section 11.2.1)
     PCP_SCHEDULE_RENEWAL,
   } type;
-  /// Next transmission due
   pcp_time_ms_t next;
-  /// Transmissions so far
   uint32_t count;
   union {
     struct {
-      /// How many transmissions at most (MRC)
       pcp_optional_count_t limit;
-      /// Current retransmission interval
       pcp_time_ms_t rt;
     } backoff;
     struct {
-      /// When the lease was granted
       pcp_time_ms_t granted;
-      /// The lease's lifetime
       pcp_time_ms_t lifetime;
     } renewal;
   };
 } pcp_schedule_t;
 
 typedef enum pcp_schedule_status {
-  /// Nothing to do before pcp_schedule_deadline()
   PCP_SCHEDULE_WAIT,
-  /// A transmission is due
   PCP_SCHEDULE_DUE,
-  /// Out of retries, or the lease expired
   PCP_SCHEDULE_EXHAUSTED,
 } pcp_schedule_status_t;
 
 /**
  * @brief Start a backoff with the first transmission due at `not_before`
  *
- * Pass 0 to send right away. Exhausted once the last of `limit` transmissions
+ * Pass 0 to expire right away. Exhausted once the last of `limit` transmissions
  * timed out.
  */
 void pcp_schedule_backoff(pcp_schedule_t *schedule,
@@ -94,7 +77,7 @@ pcp_time_ms_t pcp_schedule_deadline(pcp_schedule_t const *schedule);
 /**
  * @brief Record a transmission at `now`
  *
- * @param[in] rng The source of randomness for the next transmission
+ * @param[in] rng The source of randomness to jitter the next deadline
  */
 void pcp_schedule_advance(pcp_schedule_t *schedule,
                           pcp_time_ms_t now,

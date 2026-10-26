@@ -10,7 +10,6 @@
 static constexpr size_t PCP_PACKET_HEADER_SIZE = 24;
 static constexpr size_t PCP_OPTION_HEADER_SIZE = 4;
 
-// requests and responses have the same size
 static constexpr size_t PCP_MESSAGE_SIZE[] = {
     [ANNOUNCE] = PCP_PACKET_HEADER_SIZE + 0,
     [MAP] = PCP_PACKET_HEADER_SIZE + 36,

@@ -86,16 +86,16 @@ static void test_session_new_request_due_immediately() {
   map();
 
   // due whatever the application's clock says
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000'000));
-  TEST_ASSERT_EQUAL_size_t(0, send_due(1'000'000));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000000));
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1000000));
   end();
 }
 
 static void test_session_no_send_before_due() {
   begin(100);
   map();
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
-  TEST_ASSERT_EQUAL_size_t(0, send_due(3'999));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000));
+  TEST_ASSERT_EQUAL_size_t(0, send_due(3999));
   end();
 }
 
@@ -119,14 +119,14 @@ static void test_session_retransmits_on_schedule() {
   map();
 
   // the RT counts from when the send event was polled
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'200));
-  TEST_ASSERT_EQUAL_UINT64(4'200, deadline);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(1'200));
-  TEST_ASSERT_EQUAL_UINT64(4'200, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1200));
+  TEST_ASSERT_EQUAL_UINT64(4200, deadline);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1200));
+  TEST_ASSERT_EQUAL_UINT64(4200, deadline);
 
-  TEST_ASSERT_EQUAL_size_t(0, send_due(4'199));
-  TEST_ASSERT_EQUAL_size_t(1, send_due(4'200));
-  TEST_ASSERT_EQUAL_UINT64(10'200, deadline);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(4199));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(4200));
+  TEST_ASSERT_EQUAL_UINT64(10200, deadline);
   end();
 }
 
@@ -135,7 +135,7 @@ static void test_session_jitter_applied() {
   map();
 
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  TEST_ASSERT_EQUAL_UINT64(3'300, deadline);
+  TEST_ASSERT_EQUAL_UINT64(3300, deadline);
   end();
 }
 
@@ -151,7 +151,7 @@ static void test_session_timeout_is_earliest_mapping() {
   auto const event = pcp_session_poll(session, 200);
   TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, event.type);
   TEST_ASSERT_TRUE(event.timeout.deadline.has_value);
-  TEST_ASSERT_EQUAL_UINT64(3'200, event.timeout.deadline.value);
+  TEST_ASSERT_EQUAL_UINT64(3200, event.timeout.deadline.value);
   end();
 }
 
@@ -223,7 +223,7 @@ static void respond(pcp_handle_t handle,
                     pcp_time_ms_t now,
                     pcp_result_t result,
                     pcp_time_s_t lifetime) {
-  deliver(now, (pcp_time_s_t)(1'000 + now / 1'000), mapping_of(handle), result,
+  deliver(now, (pcp_time_s_t)(1000 + now / 1000), mapping_of(handle), result,
           lifetime, nullptr);
 }
 
@@ -245,21 +245,21 @@ static void test_session_server_reset_requests_again() {
 
   // first send at 0, then backing off: next retransmissions at 3s and 9s
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  TEST_ASSERT_EQUAL_size_t(1, send_due(3'000));
-  TEST_ASSERT_EQUAL_UINT64(9'000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3000));
+  TEST_ASSERT_EQUAL_UINT64(9000, deadline);
 
   // consistent epochs leave the schedule alone
-  receive_response(4'000, 1'000);
-  receive_response(5'000, 1'001);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(5'000));
-  TEST_ASSERT_EQUAL_UINT64(9'000, deadline);
+  receive_response(4000, 1000);
+  receive_response(5000, 1001);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(5000));
+  TEST_ASSERT_EQUAL_UINT64(9000, deadline);
 
   // the server restarted: request again right away, backoff starting over
-  receive_response(6'000, 3);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(6'000));
-  TEST_ASSERT_EQUAL_UINT64(9'000, deadline);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(9'000));
-  TEST_ASSERT_EQUAL_UINT64(15'000, deadline);
+  receive_response(6000, 3);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(6000));
+  TEST_ASSERT_EQUAL_UINT64(9000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(9000));
+  TEST_ASSERT_EQUAL_UINT64(15000, deadline);
   end();
 }
 
@@ -285,8 +285,8 @@ static socket_address_t suggested() {
 
 // with the fake RNG at 100, renewals happen 100/65535 into each window, e.g.
 // 1/2 + 1/8 * 100/65535 of an hour for the first one
-static constexpr pcp_time_ms_t first_renewal = 1'800'000 + 686;
-static constexpr pcp_time_ms_t second_renewal = 2'700'000 + 343;
+static constexpr pcp_time_ms_t first_renewal = 1800000 + 686;
+static constexpr pcp_time_ms_t second_renewal = 2700000 + 343;
 
 static void test_session_success_maps() {
   begin(100);
@@ -331,9 +331,9 @@ static void test_session_renewal_keeps_address() {
   TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
 
   // nothing changed for the application, the lease just starts over
-  respond(handle, 1'801'000, SUCCESS, 3600);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(1'801'000));
-  TEST_ASSERT_EQUAL_UINT64(1'801'000 + first_renewal, deadline);
+  respond(handle, 1801000, SUCCESS, 3600);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1801000));
+  TEST_ASSERT_EQUAL_UINT64(1801000 + first_renewal, deadline);
   end();
 }
 
@@ -345,9 +345,9 @@ static void test_session_renewal_changes_address() {
 
   granted = (socket_address_t){.ip = ip_address_from_octets(203, 0, 113, 8),
                                .port = 40000};
-  respond(handle, 1'801'000, SUCCESS, 3600);
+  respond(handle, 1801000, SUCCESS, 3600);
 
-  auto const event = next_event(1'801'000);
+  auto const event = next_event(1801000);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
   TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(granted.ip.addr, event.mapped.external.ip.addr,
@@ -355,7 +355,7 @@ static void test_session_renewal_changes_address() {
   TEST_ASSERT_EQUAL_UINT16(40000, event.mapped.external.port);
 
   // and the next renewal asks to keep the new one
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'801'000 + first_renewal));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1801000 + first_renewal));
   TEST_ASSERT_EQUAL_UINT16(40000, suggested().port);
   end();
 }
@@ -367,10 +367,10 @@ static void test_session_renewal_temporary_error_keeps_mapping() {
   TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
 
   // the lease is still valid, so the address is too. Just renew later
-  respond(handle, 1'801'000, NO_RESOURCES, 1200);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(1'801'000));
-  TEST_ASSERT_EQUAL_UINT64(3'001'000, deadline);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(3'001'000));
+  respond(handle, 1801000, NO_RESOURCES, 1200);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1801000));
+  TEST_ASSERT_EQUAL_UINT64(3001000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3001000));
   end();
 }
 
@@ -380,9 +380,9 @@ static void test_session_renewal_refused_fails() {
   establish(handle, 0);
   TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
 
-  respond(handle, 1'801'000, NOT_AUTHORIZED, 0);
+  respond(handle, 1801000, NOT_AUTHORIZED, 0);
 
-  auto const event = next_event(1'801'000);
+  auto const event = next_event(1801000);
   TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, event.type);
   TEST_ASSERT_EQUAL_UINT64(handle, event.failed.handle);
   TEST_ASSERT_EQUAL(NOT_AUTHORIZED, event.failed.result);
@@ -396,17 +396,17 @@ static void test_session_mapping_expires_without_renewal() {
 
   // the server never answers the renewals
   size_t renewals = 0;
-  while (deadline < 3'600'000) {
+  while (deadline < 3600000) {
     renewals += send_due(deadline);
   }
   TEST_ASSERT_GREATER_OR_EQUAL_size_t(5, renewals);
 
   // the application learns its address is gone, and it's requested again
-  auto const event = next_event(3'600'000);
+  auto const event = next_event(3600000);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
   TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(3'600'000));
-  TEST_ASSERT_EQUAL_UINT64(3'603'000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3600000));
+  TEST_ASSERT_EQUAL_UINT64(3603000, deadline);
   end();
 }
 
@@ -414,17 +414,17 @@ static void test_session_temporary_error_retries_later() {
   begin(100);
   auto const handle = map();
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  TEST_ASSERT_EQUAL_UINT64(3'000, deadline);
+  TEST_ASSERT_EQUAL_UINT64(3000, deadline);
 
   // the server asks us to wait 30s, which the application doesn't hear about
   respond(handle, 500, NO_RESOURCES, 30);
   TEST_ASSERT_EQUAL_size_t(0, send_due(500));
-  TEST_ASSERT_EQUAL_UINT64(30'500, deadline);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(30'499));
+  TEST_ASSERT_EQUAL_UINT64(30500, deadline);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(30499));
 
   // then a fresh backoff
-  TEST_ASSERT_EQUAL_size_t(1, send_due(30'500));
-  TEST_ASSERT_EQUAL_UINT64(33'500, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(30500));
+  TEST_ASSERT_EQUAL_UINT64(33500, deadline);
   end();
 }
 
@@ -475,11 +475,11 @@ static void test_session_response_matches_its_mapping_only() {
 
   // the first one is still being requested
   TEST_ASSERT_EQUAL_size_t(0, send_due(500));
-  TEST_ASSERT_EQUAL_UINT64(3'000, deadline);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(3'000));
+  TEST_ASSERT_EQUAL_UINT64(3000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3000));
 
-  respond(first, 3'500, SUCCESS, 3600);
-  TEST_ASSERT_EQUAL_UINT64(first, next_event(3'500).mapped.handle);
+  respond(first, 3500, SUCCESS, 3600);
+  TEST_ASSERT_EQUAL_UINT64(first, next_event(3500).mapped.handle);
   end();
 }
 
@@ -495,10 +495,10 @@ static void test_session_peer_response_must_match_remote_peer() {
 
   // same nonce, protocol and port, but a different remote peer
   socket_address_t const other = {.ip = remote.ip, .port = 444};
-  deliver(500, 1'000, mapping_of(handle.value), SUCCESS, 3600, &other);
+  deliver(500, 1000, mapping_of(handle.value), SUCCESS, 3600, &other);
   TEST_ASSERT_EQUAL_size_t(0, send_due(500));
 
-  deliver(600, 1'000, mapping_of(handle.value), SUCCESS, 3600, nullptr);
+  deliver(600, 1000, mapping_of(handle.value), SUCCESS, 3600, nullptr);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, next_event(600).type);
   end();
 }
@@ -510,8 +510,8 @@ static void test_session_duplicate_response_ignored() {
 
   // e.g. the answer to a retransmission of the same request, which is just
   // like a renewal that kept the address
-  respond(handle, 1'000, SUCCESS, 3600);
-  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, next_event(1'000).type);
+  respond(handle, 1000, SUCCESS, 3600);
+  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, next_event(1000).type);
   end();
 }
 
@@ -543,8 +543,8 @@ static void test_session_suggests_granted_address_afterwards() {
   establish(handle, 0);
 
   // requested again once it lapsed, asking to keep the same address
-  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(3'600'000).type);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(3'600'000));
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(3600000).type);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3600000));
 
   auto const suggestion = suggested();
   TEST_ASSERT_EQUAL_UINT8_ARRAY(external_ip.addr, suggestion.ip.addr, 16);
@@ -557,19 +557,19 @@ static void test_session_server_reset_unmaps_active_mapping() {
   auto const handle = map();
   establish(handle, 0);
 
-  receive_response(1'000, 1'000);
-  receive_response(2'000, 3);
+  receive_response(1000, 1000);
+  receive_response(2000, 3);
 
   // first the application learns the address is gone, then it's requested again
-  auto event = next_event(2'000);
+  auto event = next_event(2000);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
   TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
 
-  event = next_event(2'000);
+  event = next_event(2000);
   TEST_ASSERT_EQUAL(PCP_EVENT_SEND, event.type);
 
-  TEST_ASSERT_EQUAL_size_t(0, send_due(2'000));
-  TEST_ASSERT_EQUAL_UINT64(5'000, deadline);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(2000));
+  TEST_ASSERT_EQUAL_UINT64(5000, deadline);
   end();
 }
 
@@ -579,13 +579,13 @@ static void test_session_server_reset_unmaps_once() {
   establish(handle, 0);
 
   // two resets before the application polls still mean one lost address
-  receive_response(1'000, 1'000);
-  receive_response(2'000, 3);
-  receive_response(3'000, 1'000);
-  receive_response(4'000, 3);
+  receive_response(1000, 1000);
+  receive_response(2000, 3);
+  receive_response(3000, 1000);
+  receive_response(4000, 3);
 
-  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(4'000).type);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(4'000));
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(4000).type);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(4000));
   end();
 }
 
@@ -594,11 +594,11 @@ static void test_session_server_reset_pending_mapping_not_unmapped() {
   map();
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
 
-  receive_response(1'000, 1'000);
-  receive_response(2'000, 3);
+  receive_response(1000, 1000);
+  receive_response(2000, 3);
 
   // it never had an address, so it's just requested again
-  TEST_ASSERT_EQUAL_size_t(1, send_due(2'000));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(2000));
   end();
 }
 
@@ -609,10 +609,10 @@ static void test_session_server_reset_before_mapped_event() {
 
   // granted, but the server restarts before the application polls
   respond(handle, 500, SUCCESS, 3600);
-  receive_response(1'000, 3);
+  receive_response(1000, 3);
 
   // the application never saw the address, so neither MAPPED nor UNMAPPED
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000));
   end();
 }
 
@@ -623,12 +623,12 @@ static void test_session_server_reset_recovered_before_poll() {
 
   // the server restarts and grants the same address again before the
   // application polls, so as far as it's concerned nothing changed
-  receive_response(1'000, 1'001);
-  receive_response(2'000, 3);
-  deliver(3'000, 4, mapping_of(handle), SUCCESS, 3600, nullptr);
+  receive_response(1000, 1001);
+  receive_response(2000, 3);
+  deliver(3000, 4, mapping_of(handle), SUCCESS, 3600, nullptr);
 
-  TEST_ASSERT_EQUAL_size_t(0, send_due(3'000));
-  TEST_ASSERT_EQUAL_UINT64(3'000 + first_renewal, deadline);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(3000));
+  TEST_ASSERT_EQUAL_UINT64(3000 + first_renewal, deadline);
   end();
 }
 
@@ -637,16 +637,16 @@ static void test_session_server_reset_new_address_before_poll() {
   auto const handle = map();
   establish(handle, 0);
 
-  receive_response(1'000, 1'001);
-  receive_response(2'000, 3);
+  receive_response(1000, 1001);
+  receive_response(2000, 3);
   granted.port = 40000;
-  deliver(3'000, 4, mapping_of(handle), SUCCESS, 3600, nullptr);
+  deliver(3000, 4, mapping_of(handle), SUCCESS, 3600, nullptr);
 
   // only the net change: the new address, without UNMAPPED before it
-  auto const event = next_event(3'000);
+  auto const event = next_event(3000);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
   TEST_ASSERT_EQUAL_UINT16(40000, event.mapped.external.port);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(3'000));
+  TEST_ASSERT_EQUAL_size_t(0, send_due(3000));
   end();
 }
 
@@ -654,12 +654,12 @@ static void test_session_response_revealing_reset_not_applied() {
   begin(100);
   auto const handle = map();
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  receive_response(500, 1'000);
+  receive_response(500, 1000);
 
   // matches the request, but its epoch says the server lost its state, so it
   // might as well be stale
-  deliver(1'000, 3, mapping_of(handle), SUCCESS, 3600, nullptr);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  deliver(1000, 3, mapping_of(handle), SUCCESS, 3600, nullptr);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000));
   end();
 }
 
@@ -672,15 +672,15 @@ announce(pcp_time_ms_t now, pcp_time_s_t epoch, pcp_result_t result) {
 }
 
 // with the fake RNG at this value, requests wait 2.5s after an ANNOUNCE
-static constexpr uint16_t announce_delay_half = 32'768;
+static constexpr uint16_t announce_delay_half = 32768;
 
 static void test_session_announce_consistent_epoch_ignored() {
   begin(100);
   auto const handle = map();
   establish(handle, 0);
 
-  announce(10'000, 1'010, SUCCESS);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(10'000));
+  announce(10000, 1010, SUCCESS);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(10000));
   TEST_ASSERT_EQUAL_UINT64(first_renewal, deadline);
   end();
 }
@@ -691,17 +691,17 @@ static void test_session_announce_reset_unmaps_then_waits() {
   establish(handle, 0);
 
   rng_value = announce_delay_half;
-  announce(1'000, 0, SUCCESS);
+  announce(1000, 0, SUCCESS);
 
   // the application learns straight away, the request waits for the delay
-  auto const event = next_event(1'000);
+  auto const event = next_event(1000);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
   TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(1'000));
-  TEST_ASSERT_EQUAL_UINT64(3'500, deadline);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1000));
+  TEST_ASSERT_EQUAL_UINT64(3500, deadline);
 
   // trying to get the previous mapping back
-  TEST_ASSERT_EQUAL_size_t(1, send_due(3'500));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3500));
   auto const suggestion = suggested();
   TEST_ASSERT_EQUAL_UINT8_ARRAY(external_ip.addr, suggestion.ip.addr, 16);
   TEST_ASSERT_EQUAL_UINT16(external_port, suggestion.port);
@@ -712,13 +712,13 @@ static void test_session_announce_reset_delays_pending_mapping() {
   begin(100);
   map();
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  receive_response(500, 1'000);
+  receive_response(500, 1000);
 
   rng_value = announce_delay_half;
-  announce(1'000, 3, SUCCESS);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(1'000));
-  TEST_ASSERT_EQUAL_UINT64(3'500, deadline);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(3'500));
+  announce(1000, 3, SUCCESS);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1000));
+  TEST_ASSERT_EQUAL_UINT64(3500, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3500));
   end();
 }
 
@@ -728,8 +728,8 @@ static void test_session_announce_error_still_resets() {
   establish(handle, 0);
 
   // every response carries the server's epoch, whatever its result
-  announce(1'000, 3, NO_RESOURCES);
-  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(1'000).type);
+  announce(1000, 3, NO_RESOURCES);
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(1000).type);
   end();
 }
 
@@ -754,11 +754,11 @@ static void test_session_release_deletes_active_mapping() {
   establish(handle, 0);
 
   pcp_session_release(session, handle);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000));
   assert_sent_delete();
 
-  respond(handle, 1'500, SUCCESS, 0);
-  assert_idle(1'500);
+  respond(handle, 1500, SUCCESS, 0);
+  assert_idle(1500);
   end();
 }
 
@@ -769,13 +769,13 @@ static void test_session_release_gives_up_without_response() {
 
   // three attempts, then the mapping is left to expire
   pcp_session_release(session, handle);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
-  TEST_ASSERT_EQUAL_UINT64(4'000, deadline);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(4'000));
-  TEST_ASSERT_EQUAL_UINT64(10'000, deadline);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(10'000));
-  TEST_ASSERT_EQUAL_UINT64(22'000, deadline);
-  assert_idle(22'000);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000));
+  TEST_ASSERT_EQUAL_UINT64(4000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(4000));
+  TEST_ASSERT_EQUAL_UINT64(10000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(10000));
+  TEST_ASSERT_EQUAL_UINT64(22000, deadline);
+  assert_idle(22000);
   end();
 }
 
@@ -785,12 +785,12 @@ static void test_session_release_error_not_retried() {
   establish(handle, 0);
 
   pcp_session_release(session, handle);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000));
 
   // the server asks not to repeat the request for a while, so the lease is
   // left to run out
-  respond(handle, 1'500, NO_RESOURCES, 30);
-  assert_idle(1'500);
+  respond(handle, 1500, NO_RESOURCES, 30);
+  assert_idle(1500);
   end();
 }
 
@@ -841,7 +841,7 @@ static void test_session_release_peer_not_deleted() {
 
   // PEER mappings can't be deleted
   pcp_session_release(session, handle.value);
-  assert_idle(1'000);
+  assert_idle(1000);
   end();
 }
 
@@ -875,11 +875,11 @@ static void test_session_release_ends_on_server_reset() {
   establish(handle, 0);
 
   pcp_session_release(session, handle);
-  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1000));
 
   // the server forgot the mapping by itself
-  receive_response(2'000, 3);
-  assert_idle(2'000);
+  receive_response(2000, 3);
+  assert_idle(2000);
   end();
 }
 
@@ -933,7 +933,7 @@ static void test_session_release_ignores_unknown_handle() {
   map();
 
   pcp_session_release(session, 0);
-  pcp_session_release(session, 1'000);
+  pcp_session_release(session, 1000);
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
   end();
 }
@@ -961,11 +961,11 @@ static void test_session_ignores_malformed_datagrams() {
   map();
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
 
-  receive_response(1'000, 1'000);
+  receive_response(1000, 1000);
   uint8_t garbage[60] = {0x02, 0x01}; // a request, not a response
-  pcp_session_on_datagram(session, 2'000, sizeof(garbage), garbage);
-  TEST_ASSERT_EQUAL_size_t(0, send_due(2'000));
-  TEST_ASSERT_EQUAL_UINT64(3'000, deadline);
+  pcp_session_on_datagram(session, 2000, sizeof(garbage), garbage);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(2000));
+  TEST_ASSERT_EQUAL_UINT64(3000, deadline);
   end();
 }
 
