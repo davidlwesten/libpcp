@@ -24,7 +24,7 @@ static pcp_session_t *begin_with(uint16_t value, ip_address_t local) {
   session = pcp_session_begin((pcp_config_t){
       .local = local,
       .allocator = {0},
-      .rng = {.random = test_rng_fixed, .ctx = &rng_value},
+      .rng = {.fill = test_rng_fixed, .ctx = &rng_value},
       .buffer = {.size = sizeof(send_buffer), .data = send_buffer},
   });
   TEST_ASSERT_NOT_NULL(session);

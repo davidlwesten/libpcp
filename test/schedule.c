@@ -10,13 +10,11 @@ static uint16_t none_value = 100;        // 0%
 static uint16_t max_value = 200;         // +10%
 static uint16_t wrap_value = UINT16_MAX; // 65535 % 201 = 9, i.e. -9.1%
 
-static pcp_rng_t const JITTER_MIN = {.random = test_rng_fixed,
-                                     .ctx = &min_value};
-static pcp_rng_t const JITTER_NONE = {.random = test_rng_fixed,
+static pcp_rng_t const JITTER_MIN = {.fill = test_rng_fixed, .ctx = &min_value};
+static pcp_rng_t const JITTER_NONE = {.fill = test_rng_fixed,
                                       .ctx = &none_value};
-static pcp_rng_t const JITTER_MAX = {.random = test_rng_fixed,
-                                     .ctx = &max_value};
-static pcp_rng_t const JITTER_WRAP = {.random = test_rng_fixed,
+static pcp_rng_t const JITTER_MAX = {.fill = test_rng_fixed, .ctx = &max_value};
+static pcp_rng_t const JITTER_WRAP = {.fill = test_rng_fixed,
                                       .ctx = &wrap_value};
 
 static void test_schedule_due_at_start() {
@@ -92,7 +90,7 @@ static void test_schedule_no_jitter_when_rng_fails() {
   pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
 
   pcp_schedule_advance(&schedule, 0,
-                       (pcp_rng_t){.random = test_rng_failing, .ctx = nullptr});
+                       (pcp_rng_t){.fill = test_rng_failing, .ctx = nullptr});
   TEST_ASSERT_EQUAL_UINT64(3'000, schedule.backoff.rt);
 }
 

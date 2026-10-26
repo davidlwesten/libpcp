@@ -8,7 +8,7 @@ static constexpr pcp_time_ms_t PCP_RENEWAL_MIN_INTERVAL = 4'000;
 
 // a uniformly distributed random value, or nothing if the RNG fails
 static bool random16(pcp_rng_t rng, uint16_t *out) {
-  return rng.random(rng.ctx, sizeof(*out), (uint8_t *)out);
+  return rng.fill(rng.ctx, sizeof(*out), (uint8_t *)out);
 }
 
 void pcp_schedule_backoff(pcp_schedule_t *schedule,
@@ -57,7 +57,7 @@ void pcp_schedule_renewal(pcp_schedule_t *schedule,
                           pcp_time_ms_t lifetime,
                           pcp_rng_t rng) {
   assert(schedule);
-  assert(rng.random);
+  assert(rng.fill);
 
   *schedule = (pcp_schedule_t){
       .type = PCP_SCHEDULE_RENEWAL,
@@ -187,7 +187,7 @@ void pcp_schedule_advance(pcp_schedule_t *schedule,
                           pcp_time_ms_t now,
                           pcp_rng_t rng) {
   assert(schedule);
-  assert(rng.random);
+  assert(rng.fill);
 
   switch (schedule->type) {
   case PCP_SCHEDULE_BACKOFF:

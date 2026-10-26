@@ -407,8 +407,8 @@ pcp_optional_time_ms_t pcp_mapping_deadline(pcp_mapping_t const *mapping) {
 }
 
 bool pcp_nonce_generate(pcp_rng_t rng, pcp_nonce_t *out) {
-  assert(rng.random);
+  assert(rng.fill);
   assert(out);
 
-  return rng.random(rng.ctx, sizeof(out->data), out->data);
+  return rng.fill(rng.ctx, sizeof(out->data), out->data);
 }

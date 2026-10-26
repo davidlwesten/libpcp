@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
                          .rng =
                              {
                                  .ctx = nullptr,
-                                 .random = pcp_rng,
+                                 .fill = pcp_rng,
                              },
                          .buffer = {
                              .size = sizeof(buffer),

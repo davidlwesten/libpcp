@@ -31,7 +31,7 @@ typedef struct pcp_allocator {
 } pcp_allocator_t;
 
 typedef struct pcp_rng {
-  bool (*random)(void *ctx, size_t size, uint8_t data[size]);
+  bool (*fill)(void *ctx, size_t size, uint8_t data[size]);
   void *ctx;
 } pcp_rng_t;
 

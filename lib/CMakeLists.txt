@@ -11,7 +11,6 @@ target_sources(pcp
     epoch.c
     ip.c
     mapping.c
-    pcp.c
     schedule.c
     session.c
     wire.c)
