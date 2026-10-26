@@ -126,7 +126,8 @@ void transport_loop(pcp_session_t *session, bool until_idle) {
       }
       case PCP_EVENT_MAPPED: {
         char external[SOCKET_ADDRESS_STRING_LENGTH];
-        socket_address_ntop(sizeof(external), external, &event.mapped.external);
+        socket_address_to_string(sizeof(external), external,
+                                 &event.mapped.external);
         printf("Mapping %" PRIu64 " is reachable at %s\n", event.mapped.handle,
                external);
         break;

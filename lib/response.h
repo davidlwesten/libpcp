@@ -4,24 +4,32 @@
 
 #include "nonce.h"
 
-// A parsed response. ANNOUNCE responses are just the header.
+/**
+ * @brief A parsed response. ANNOUNCE responses are just the header.
+ */
 typedef struct pcp_response {
   pcp_opcode_t type;
   pcp_result_t result;
-  pcp_time_s_t lifetime; // granted lifetime, or how long an error applies
-  pcp_time_s_t epoch;    // the server's epoch, for detecting restarts
+  /// Granted lifetime, or how long an error applies
+  pcp_time_s_t lifetime;
+  /// The server's epoch, for detecting restarts
+  pcp_time_s_t epoch;
   union {
     struct {
       pcp_nonce_t nonce;
       pcp_protocol_t protocol;
-      port_t port;               // internal port
-      socket_address_t external; // assigned
+      /// Internal port
+      port_t port;
+      /// Assigned external address
+      socket_address_t external;
     } map;
     struct {
       pcp_nonce_t nonce;
       pcp_protocol_t protocol;
-      port_t port;               // internal port
-      socket_address_t external; // assigned
+      /// Internal port
+      port_t port;
+      /// Assigned external address
+      socket_address_t external;
       socket_address_t peer;
     } peer;
   };

@@ -3,10 +3,14 @@
 #include <pcp/pcp.h>
 
 typedef struct pcp_backoff {
-  pcp_time_ms_t irt; // initial retransmission time, must be non-zero
-  pcp_time_ms_t mrt; // maximum retransmission time, must be non-zero
-  pcp_time_ms_t mrd; // maximum retransmission duration, 0 = unbounded
-  uint32_t mrc;      // maximum retransmission count, 0 = unbounded
+  /// Initial retransmission time, must be non-zero
+  pcp_time_ms_t irt;
+  /// Maximum retransmission time, must be non-zero
+  pcp_time_ms_t mrt;
+  /// Maximum retransmission duration, 0 = unbounded
+  pcp_time_ms_t mrd;
+  /// Maximum retransmission count, 0 = unbounded
+  uint32_t mrc;
 } pcp_backoff_t;
 
 static constexpr pcp_backoff_t PCP_BACKOFF_DEFAULT = {
@@ -16,7 +20,9 @@ static constexpr pcp_backoff_t PCP_BACKOFF_DEFAULT = {
     .mrc = 0,
 };
 
-// For delete requests. If none get an answer the mapping just expires.
+/**
+ * @brief For delete requests. If none get an answer the mapping just expires.
+ */
 static constexpr pcp_backoff_t PCP_BACKOFF_RELEASE = {
     .irt = 3'000,
     .mrt = 1'024'000,
@@ -26,28 +32,39 @@ static constexpr pcp_backoff_t PCP_BACKOFF_RELEASE = {
 
 typedef struct pcp_schedule {
   enum {
-    PCP_SCHEDULE_BACKOFF, // request retransmissions (RFC 6887 section 8.1.1)
-    PCP_SCHEDULE_RENEWAL, // lease renewals (RFC 6887 section 11.2.1)
+    /// Request retransmissions (RFC 6887 section 8.1.1)
+    PCP_SCHEDULE_BACKOFF,
+    /// Lease renewals (RFC 6887 section 11.2.1)
+    PCP_SCHEDULE_RENEWAL,
   } type;
-  pcp_time_ms_t next; // next transmission due
-  uint32_t count;     // transmissions so far
+  /// Next transmission due
+  pcp_time_ms_t next;
+  /// Transmissions so far
+  uint32_t count;
   union {
     struct {
       pcp_backoff_t params;
-      pcp_time_ms_t start; // first transmission, valid once count > 0
-      pcp_time_ms_t rt;    // current retransmission interval
+      /// First transmission, valid once count > 0
+      pcp_time_ms_t start;
+      /// Current retransmission interval
+      pcp_time_ms_t rt;
     } backoff;
     struct {
-      pcp_time_ms_t granted;  // when the lease was granted
-      pcp_time_ms_t lifetime; // the lease's lifetime
+      /// When the lease was granted
+      pcp_time_ms_t granted;
+      /// The lease's lifetime
+      pcp_time_ms_t lifetime;
     } renewal;
   };
 } pcp_schedule_t;
 
 typedef enum pcp_schedule_status {
-  PCP_SCHEDULE_WAIT,      // nothing to do before pcp_schedule_deadline()
-  PCP_SCHEDULE_DUE,       // a transmission is due
-  PCP_SCHEDULE_EXHAUSTED, // out of retries, or the lease expired
+  /// Nothing to do before pcp_schedule_deadline()
+  PCP_SCHEDULE_WAIT,
+  /// A transmission is due
+  PCP_SCHEDULE_DUE,
+  /// Out of retries, or the lease expired
+  PCP_SCHEDULE_EXHAUSTED,
 } pcp_schedule_status_t;
 
 /**

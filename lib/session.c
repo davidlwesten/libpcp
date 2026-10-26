@@ -169,9 +169,8 @@ pcp_session_request(pcp_session_t *session,
 // one from the suggested family
 static socket_address_t pcp_session_any_external(pcp_session_t const *session) {
   return (socket_address_t){
-      .ip = ip_address_is_ipv4_mapped(&session->config.local)
-                ? ip_address_any_v4
-                : ip_address_any_v6,
+      .ip = ip_address_is_ipv4(&session->config.local) ? ip_address_any_v4
+                                                       : ip_address_any_v6,
       .port = 0,
   };
 }

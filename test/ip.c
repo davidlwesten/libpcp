@@ -30,12 +30,12 @@ static void test_ip_address_ntop_ipv4() {
   auto ip = ip_address_from_in_addr(&loopback);
 
   char string[INET_ADDRSTRLEN + 1];
-  TEST_ASSERT_TRUE(ip_address_ntop(sizeof(string), string, &ip));
+  TEST_ASSERT_TRUE(ip_address_to_string(sizeof(string), string, &ip));
   TEST_ASSERT_EQUAL_STRING("127.0.0.1", string);
 
   struct in_addr any = {0};
   ip = ip_address_from_in_addr(&any);
-  TEST_ASSERT_TRUE(ip_address_ntop(sizeof(string), string, &ip));
+  TEST_ASSERT_TRUE(ip_address_to_string(sizeof(string), string, &ip));
   TEST_ASSERT_EQUAL_STRING("0.0.0.0", string);
 }
 
@@ -44,12 +44,12 @@ static void test_ip_address_ntop_ipv6() {
   auto ip = ip_address_from_in6_addr(&loopback);
 
   char string[INET6_ADDRSTRLEN + 1];
-  TEST_ASSERT_TRUE(ip_address_ntop(sizeof(string), string, &ip));
+  TEST_ASSERT_TRUE(ip_address_to_string(sizeof(string), string, &ip));
   TEST_ASSERT_EQUAL_STRING("::1", string);
 
   const struct in6_addr any = IN6ADDR_ANY_INIT;
   ip = ip_address_from_in6_addr(&any);
-  TEST_ASSERT_TRUE(ip_address_ntop(sizeof(string), string, &ip));
+  TEST_ASSERT_TRUE(ip_address_to_string(sizeof(string), string, &ip));
   TEST_ASSERT_EQUAL_STRING("::", string);
 }
 
@@ -60,7 +60,8 @@ static void test_socket_address_ntop_ipv4() {
   auto const socket = socket_address_from_sockaddr_in(&address);
 
   char dst[128] = {0};
-  TEST_ASSERT_EQUAL_size_t(15, socket_address_ntop(sizeof(dst), dst, &socket));
+  TEST_ASSERT_EQUAL_size_t(15,
+                           socket_address_to_string(sizeof(dst), dst, &socket));
   TEST_ASSERT_EQUAL_STRING("127.0.0.1:12345", dst);
 }
 
@@ -72,14 +73,15 @@ static void test_socket_address_ntop_ipv6() {
 
   {
     char dst[128] = {0};
-    TEST_ASSERT_EQUAL_size_t(11,
-                             socket_address_ntop(sizeof(dst), dst, &socket));
+    TEST_ASSERT_EQUAL_size_t(
+        11, socket_address_to_string(sizeof(dst), dst, &socket));
     TEST_ASSERT_EQUAL_STRING("[::1]:12345", dst);
   }
 
   {
     char dst[1] = {0};
-    TEST_ASSERT_EQUAL_size_t(0, socket_address_ntop(sizeof(dst), dst, &socket));
+    TEST_ASSERT_EQUAL_size_t(
+        0, socket_address_to_string(sizeof(dst), dst, &socket));
     TEST_ASSERT_EQUAL_STRING("", dst);
   }
 }
@@ -102,10 +104,10 @@ static void test_ip_address_constants() {
 
   char string[INET6_ADDRSTRLEN + 1];
   TEST_ASSERT_TRUE(
-      ip_address_ntop(sizeof(string), string, &ip_address_loopback_v4));
+      ip_address_to_string(sizeof(string), string, &ip_address_loopback_v4));
   TEST_ASSERT_EQUAL_STRING("127.0.0.1", string);
   TEST_ASSERT_TRUE(
-      ip_address_ntop(sizeof(string), string, &ip_address_loopback_v6));
+      ip_address_to_string(sizeof(string), string, &ip_address_loopback_v6));
   TEST_ASSERT_EQUAL_STRING("::1", string);
 }
 

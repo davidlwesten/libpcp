@@ -15,7 +15,7 @@ static bool pcp_rng(void * /*ctx*/, size_t count, uint8_t bytes[count]);
 
 const char *address_to_string(socket_address_t const *addr) {
   static char buffer[SOCKET_ADDRESS_STRING_LENGTH];
-  socket_address_ntop(sizeof(buffer), buffer, addr);
+  socket_address_to_string(sizeof(buffer), buffer, addr);
   return buffer;
 }
 

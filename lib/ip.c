@@ -10,14 +10,14 @@
 
 constexpr char IPV4_MAPPED_PREFIX[] = "\0\0\0\0\0\0\0\0\0\0\xFF\xFF";
 
-bool ip_address_is_ipv4_mapped(const ip_address_t *ip) {
+bool ip_address_is_ipv4(const ip_address_t *ip) {
   assert(ip);
   return memcmp(ip->addr, IPV4_MAPPED_PREFIX, 12) == 0;
 }
 
 static struct in_addr ip_address_to_in_addr(const ip_address_t *ip) {
   assert(ip);
-  assert(ip_address_is_ipv4_mapped(ip));
+  assert(ip_address_is_ipv4(ip));
   struct in_addr result = {0};
   memcpy(&result.s_addr, ip->addr + 12, sizeof(result.s_addr));
   return result;
@@ -25,7 +25,7 @@ static struct in_addr ip_address_to_in_addr(const ip_address_t *ip) {
 
 static struct in6_addr ip_address_to_in6_addr(const ip_address_t *ip) {
   assert(ip);
-  assert(!ip_address_is_ipv4_mapped(ip));
+  assert(!ip_address_is_ipv4(ip));
   struct in6_addr result = {0};
   memcpy(result.s6_addr, ip->addr, sizeof(result.s6_addr));
   return result;
@@ -80,7 +80,7 @@ struct size_or_error {
 };
 
 static struct size_or_error
-ip_address_ntop_v4(size_t size, char dst[size], const ip_address_t *src) {
+ip_address_to_string_v4(size_t size, char dst[size], const ip_address_t *src) {
   if (size < (INET_ADDRSTRLEN + 1)) {
     return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }
@@ -96,7 +96,7 @@ ip_address_ntop_v4(size_t size, char dst[size], const ip_address_t *src) {
 }
 
 static struct size_or_error
-ip_address_ntop_v6(size_t size, char dst[size], const ip_address_t *src) {
+ip_address_to_string_v6(size_t size, char dst[size], const ip_address_t *src) {
   if (size < (INET6_ADDRSTRLEN + 1)) {
     return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }
@@ -111,14 +111,15 @@ ip_address_ntop_v6(size_t size, char dst[size], const ip_address_t *src) {
   return (struct size_or_error){.has_value = true, .value = strlen(dst)};
 }
 
-size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src) {
+size_t
+ip_address_to_string(size_t size, char dst[size], const ip_address_t *src) {
   assert(src);
 
   struct size_or_error result;
-  if (ip_address_is_ipv4_mapped(src)) {
-    result = ip_address_ntop_v4(size, dst, src);
+  if (ip_address_is_ipv4(src)) {
+    result = ip_address_to_string_v4(size, dst, src);
   } else {
-    result = ip_address_ntop_v6(size, dst, src);
+    result = ip_address_to_string_v6(size, dst, src);
   }
 
   return result.has_value ? result.value : 0;
@@ -127,8 +128,7 @@ size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src) {
 ip_network_t ip_network_from_address(ip_address_t address, uint8_t prefix) {
   return (ip_network_t){
       .address = address,
-      .prefix =
-          ip_address_is_ipv4_mapped(&address) ? (uint8_t)(96 + prefix) : prefix,
+      .prefix = ip_address_is_ipv4(&address) ? (uint8_t)(96 + prefix) : prefix,
   };
 }
 
@@ -227,14 +227,14 @@ optional_socket_address_t socket_address_from_string(const char *address) {
 }
 
 static struct size_or_error
-socket_address_ntop_v4(size_t size,
-                       char dst[size],
-                       const socket_address_t *address) {
+socket_address_to_string_v4(size_t size,
+                            char dst[size],
+                            const socket_address_t *address) {
   if (size < (INET_ADDRSTRLEN + 7)) {
     return (struct size_or_error){.has_value = false, .error = ENOBUFS};
   }
 
-  auto const ip_size = ip_address_ntop_v4(size, dst, &address->ip);
+  auto const ip_size = ip_address_to_string_v4(size, dst, &address->ip);
   if (!ip_size.has_value) {
     return ip_size;
   }
@@ -251,9 +251,9 @@ socket_address_ntop_v4(size_t size,
 }
 
 static struct size_or_error
-socket_address_ntop_v6(size_t size,
-                       char dst[size],
-                       const socket_address_t *address) {
+socket_address_to_string_v6(size_t size,
+                            char dst[size],
+                            const socket_address_t *address) {
   constexpr size_t MIN_SIZE = INET6_ADDRSTRLEN + 3 + 6;
   if (size < MIN_SIZE) {
     return (struct size_or_error){.has_value = false, .error = ENOBUFS};
@@ -262,7 +262,7 @@ socket_address_ntop_v6(size_t size,
   dst[0] = '[';
 
   auto const ip_size =
-      ip_address_ntop_v6(INET6_ADDRSTRLEN + 1, dst + 1, &address->ip);
+      ip_address_to_string_v6(INET6_ADDRSTRLEN + 1, dst + 1, &address->ip);
   if (!ip_size.has_value) {
     return ip_size;
   }
@@ -279,13 +279,13 @@ socket_address_ntop_v6(size_t size,
                                 .value = ip_size.value + 1 + (size_t)result};
 }
 
-size_t socket_address_ntop(size_t size,
-                           char dst[size],
-                           const socket_address_t *address) {
+size_t socket_address_to_string(size_t size,
+                                char dst[size],
+                                const socket_address_t *address) {
 
-  auto const result = ip_address_is_ipv4_mapped(&address->ip)
-                          ? socket_address_ntop_v4(size, dst, address)
-                          : socket_address_ntop_v6(size, dst, address);
+  auto const result = ip_address_is_ipv4(&address->ip)
+                          ? socket_address_to_string_v4(size, dst, address)
+                          : socket_address_to_string_v6(size, dst, address);
 
   return result.has_value ? result.value : 0;
 }

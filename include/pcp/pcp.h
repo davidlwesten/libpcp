@@ -51,6 +51,16 @@ typedef struct pcp_config {
 
 typedef struct pcp_session pcp_session_t;
 
+/**
+ * @brief Create a session
+ *
+ * `config.rng` is required. If `config.allocator` is left zeroed, malloc and
+ * free are used.
+ *
+ * @param[in] config The session's configuration, copied into the session
+ *
+ * @returns The session, or nullptr if it couldn't be allocated
+ */
 pcp_session_t *pcp_session_begin(pcp_config_t config);
 
 /**
@@ -74,11 +84,6 @@ typedef enum pcp_opcode : uint8_t {
   PEER = 2
 } pcp_opcode_t;
 
-/**
- * Request option (RFC 6887 section 13)
- *
- * Options are sent as they are. If the server rejects one, the mapping fails.
- */
 typedef struct pcp_option {
   enum {
     /// Map on behalf of another internal host (MAP and PEER)
@@ -93,13 +98,14 @@ typedef struct pcp_option {
       ip_address_t internal;
     } third_party;
     struct {
-      ip_network_t peers; ///< see ip_network_from_address
-      port_t port;        ///< 0 for any port
+      /// See ip_network_from_address
+      ip_network_t peers;
+      /// 0 for any port
+      port_t port;
     } filter;
   };
 } pcp_option_t;
 
-/// Mapping ID, unique within a session. IDs are never reused.
 typedef uint64_t pcp_handle_t;
 typedef typeof(errno) errno_t;
 
@@ -195,7 +201,7 @@ typedef enum pcp_result : uint8_t {
 } pcp_result_t;
 
 /**
- * Something the application has to handle, see pcp_session_poll
+ * @brief Something the application has to handle, see pcp_session_poll
  *
  * The address from PCP_EVENT_MAPPED is valid until the next PCP_EVENT_UNMAPPED
  * or PCP_EVENT_FAILED for the same handle.
@@ -217,15 +223,11 @@ typedef struct pcp_event {
     PCP_EVENT_TIMEOUT,
   } type;
   union {
-    /**
-     * The request to send to the server
-     *
-     * `data` points into the buffer from pcp_config_t and is only valid until
-     * the next poll. Copy it if you want to send it later. If sending fails,
-     * it's fine to just drop it, the retransmission is already scheduled.
-     */
     struct {
       size_t size;
+      /// Points into the buffer from pcp_config_t and is only valid until the
+      /// next poll. Copy it if you want to send it later. If sending fails,
+      /// it's fine to just drop it, the retransmission is already scheduled.
       uint8_t const *data;
     } send;
     struct {

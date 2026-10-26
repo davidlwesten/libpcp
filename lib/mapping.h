@@ -9,22 +9,31 @@
 
 bool pcp_nonce_generate(pcp_rng_t rng, pcp_nonce_t *out);
 
-// What the server granted
+/**
+ * @brief What the server granted
+ */
 typedef struct pcp_mapping_lease {
   socket_address_t external;
   pcp_time_ms_t granted;
   pcp_time_ms_t lifetime;
 } pcp_mapping_lease_t;
 
-// Only set by the pcp_mapping_enter_* functions, which overwrite all of it so
-// nothing carries over from one state to the next
+/**
+ * @brief The mapping's state
+ *
+ * Only set by the pcp_mapping_enter_* functions, which overwrite all of it so
+ * nothing carries over from one state to the next.
+ */
 typedef struct pcp_mapping_state {
   enum {
     PENDING,
     ACTIVE,
-    FAILED,    // refused, FAILED event not sent yet
-    RELEASING, // released, sending the delete request
-    RELEASED,  // done, waiting to be freed
+    /// Refused, FAILED event not sent yet
+    FAILED,
+    /// Released, sending the delete request
+    RELEASING,
+    /// Done, waiting to be freed
+    RELEASED,
   } type;
   union {
     struct {
@@ -32,7 +41,8 @@ typedef struct pcp_mapping_state {
     } pending;
     struct {
       pcp_mapping_lease_t lease;
-      pcp_schedule_t schedule; // renewals
+      /// Renewals
+      pcp_schedule_t schedule;
     } active;
     struct {
       pcp_result_t result;
@@ -49,8 +59,8 @@ typedef struct pcp_mapping {
   pcp_request_t request;
   pcp_nonce_t nonce;
   pcp_mapping_state_t state;
-  // Address from the last MAPPED event, cleared by UNMAPPED. Only used by
-  // pcp_mapping_report() to figure out which event to send next.
+  /// Address from the last MAPPED event, cleared by UNMAPPED. Only used by
+  /// pcp_mapping_report() to figure out which event to send next.
   optional_socket_address_t last_mapped;
   size_t count;
   pcp_option_t options[];
