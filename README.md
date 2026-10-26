@@ -1,5 +1,7 @@
 # libpcp
 
+[![CI](https://github.com/davidlwesten/libpcp/actions/workflows/ci.yml/badge.svg)](https://github.com/davidlwesten/libpcp/actions/workflows/ci.yml)
+
 A client library for the Port Control Protocol ([RFC 6887]), written in C23.
 
 PCP lets a host ask its router or firewall to open a port for incoming
@@ -103,7 +105,7 @@ include(FetchContent)
 FetchContent_Declare(
   libpcp
   GIT_REPOSITORY https://github.com/davidlwesten/libpcp.git
-  GIT_TAG main
+  GIT_TAG v1.0.0
 )
 FetchContent_MakeAvailable(libpcp)
 

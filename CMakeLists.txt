@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.23)
 
-project(pcp VERSION 1.0 LANGUAGES C)
+project(pcp VERSION 1.0.0 LANGUAGES C)
 
 # The example is only built by default when libpcp isn't pulled in by another
 # project (e.g. through FetchContent)
