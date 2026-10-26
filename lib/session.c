@@ -127,6 +127,14 @@ pcp_session_request(pcp_session_t *session,
                     pcp_option_t const options[count]) {
   assert(session);
 
+  // the request has to fit into a packet, whatever the server thinks of it
+  if (pcp_packet_request_size(&request, count, options) > PCP_PACKET_MAX_SIZE) {
+    return (pcp_handle_or_error_t){
+        .has_value = false,
+        .error = EMSGSIZE,
+    };
+  }
+
   pcp_mapping_t *mapping =
       ALLOC(session->config.allocator,
             sizeof(pcp_mapping_t) + sizeof(pcp_option_t) * count);

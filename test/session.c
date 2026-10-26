@@ -894,6 +894,25 @@ static void test_session_release_keeps_other_mappings() {
   end();
 }
 
+static void test_session_options_must_fit_into_packet() {
+  begin(100);
+  pcp_option_t options[50] = {};
+  for (size_t i = 0; i < 50; ++i) {
+    options[i] =
+        (pcp_option_t){.type = FILTER, .filter = {.peer = {}, .prefix = 128}};
+  }
+
+  // 60 bytes of MAP and 50 filters of 24 bytes
+  auto const handle =
+      pcp_session_map_request(session, 3600, UDP, 1234, 50, options);
+  TEST_ASSERT_FALSE(handle.has_value);
+  TEST_ASSERT_EQUAL(EMSGSIZE, handle.error);
+
+  TEST_ASSERT_TRUE(
+      pcp_session_map_request(session, 3600, UDP, 1234, 40, options).has_value);
+  end();
+}
+
 static void test_session_handles_unique() {
   begin(100);
   auto const first = map();
@@ -1013,6 +1032,7 @@ void session_tests() {
   RUN_TEST(test_session_release_before_failed_event);
   RUN_TEST(test_session_release_ends_on_server_reset);
   RUN_TEST(test_session_release_keeps_other_mappings);
+  RUN_TEST(test_session_options_must_fit_into_packet);
   RUN_TEST(test_session_handles_unique);
   RUN_TEST(test_session_release_ignores_unknown_handle);
   RUN_TEST(test_session_release_twice_ignored);

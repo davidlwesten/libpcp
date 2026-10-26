@@ -119,6 +119,7 @@ set(TEST_CASES
   test_session_release_before_failed_event
   test_session_release_ends_on_server_reset
   test_session_release_keeps_other_mappings
+  test_session_options_must_fit_into_packet
   test_session_handles_unique
   test_session_release_ignores_unknown_handle
   test_session_release_twice_ignored
@@ -126,6 +127,10 @@ set(TEST_CASES
   test_wire_map_request
   test_wire_map_request_without_suggestion
   test_wire_peer_request
+  test_wire_third_party_option
+  test_wire_options_in_given_order
+  test_wire_delete_request_without_filters
+  test_wire_peer_request_with_options
   test_wire_read_map_response
   test_wire_read_peer_response
   test_wire_read_announce_response

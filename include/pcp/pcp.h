@@ -76,10 +76,20 @@ typedef enum pcp_opcode : uint8_t {
   PEER = 2
 } pcp_opcode_t;
 
+/**
+ * An option to attach to a request, see RFC 6887 §13
+ *
+ * The session sends options as given, it's up to the server to reject the ones
+ * that don't make sense (resulting in PCP_EVENT_FAILED).
+ */
 typedef struct pcp_option {
   enum {
+    /// Request the mapping on behalf of another internal host (MAP and PEER)
     THIRD_PARTY = 1,
-    PREFER_FAILURE = 2,
+    /// Only let traffic from `filter.peer` through (MAP only). The server adds
+    /// the filters of every request to the mapping's, renewals included, and a
+    /// prefix of 0 removes all of them (RFC 6887 §13.3). Left out when the
+    /// mapping is released
     FILTER = 3,
   } type;
   union {
@@ -87,7 +97,9 @@ typedef struct pcp_option {
       ip_address_t internal;
     } third_party;
     struct {
-      socket_address_t peer;
+      socket_address_t peer; ///< port 0 for any port
+      /// The number of leading bits of the 128-bit `peer.ip` that must match,
+      /// i.e. 96 plus the usual prefix length for IPv4
       uint8_t prefix;
     } filter;
   };
@@ -119,7 +131,8 @@ typedef struct pcp_handle_or_error {
  * The request is due immediately, so the application should poll the session
  * afterwards, see pcp_session_poll.
  *
- * @returns The handle on success or an error otherwise
+ * @returns The handle on success or an error otherwise, e.g. EMSGSIZE if the
+ *          options don't fit into a packet
  */
 pcp_handle_or_error_t
 pcp_session_map_request(pcp_session_t *session,
@@ -143,7 +156,8 @@ pcp_session_map_request(pcp_session_t *session,
  * The request is due immediately, so the application should poll the session
  * afterwards, see pcp_session_poll.
  *
- * @returns The handle on success or an error otherwise
+ * @returns The handle on success or an error otherwise, e.g. EMSGSIZE if the
+ *          options don't fit into a packet
  */
 pcp_handle_or_error_t
 pcp_session_peer_request(pcp_session_t *session,

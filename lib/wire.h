@@ -18,6 +18,18 @@ typedef struct view {
 typedef struct pcp_request pcp_request_t;
 typedef struct pcp_response pcp_response_t;
 
+/**
+ * @brief The size of the request pcp_packet_write_request would write
+ */
+size_t pcp_packet_request_size(pcp_request_t const *request,
+                               size_t count,
+                               pcp_option_t const options[count]);
+
+/**
+ * @brief Write a request, including the options valid for it
+ *
+ * @returns The size of the request
+ */
 size_t pcp_packet_write_request(view_t dst,
                                 pcp_request_t const *src,
                                 pcp_nonce_t const *nonce,

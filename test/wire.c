@@ -21,14 +21,24 @@ static pcp_request_t map_request(socket_address_t external) {
   };
 }
 
-static size_t write_request(pcp_request_t const *request, uint8_t buffer[]) {
+static size_t write_request_with(pcp_request_t const *request,
+                                 size_t count,
+                                 pcp_option_t const options[count],
+                                 uint8_t buffer[]) {
   // garbage, so we notice reserved fields that aren't written
   memset(buffer, 0xAA, PCP_PACKET_MAX_SIZE);
 
   auto const internal = ip_address_from_octets(192, 168, 1, 100);
-  return pcp_packet_write_request(
+  auto const size = pcp_packet_write_request(
       (view_t){.size = PCP_PACKET_MAX_SIZE, .data = buffer}, request, &nonce,
-      &internal, 0, nullptr);
+      &internal, count, options);
+  TEST_ASSERT_EQUAL_size_t(pcp_packet_request_size(request, count, options),
+                           size);
+  return size;
+}
+
+static size_t write_request(pcp_request_t const *request, uint8_t buffer[]) {
+  return write_request_with(request, 0, nullptr, buffer);
 }
 
 static void test_wire_map_request() {
@@ -123,6 +133,102 @@ static void test_wire_peer_request() {
 
   TEST_ASSERT_EQUAL_size_t(sizeof(expected), size);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, buffer, sizeof(expected));
+}
+
+static pcp_option_t const third_party = {
+    .type = THIRD_PARTY,
+    .third_party = {.internal = {.addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF,
+                                          0xFF, 192, 168, 1, 50}}},
+};
+
+static pcp_option_t const filter = {
+    .type = FILTER,
+    .filter = {.peer = {.ip = {.addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF,
+                                        0xFF, 198, 51, 100, 0}},
+                        .port = 443},
+               .prefix = 120},
+};
+
+// clang-format off
+static uint8_t const third_party_bytes[] = {
+    // code, reserved, length: 16
+    0x01, 0x00, 0x00, 0x10,
+    // internal IP address: ::ffff:192.168.1.50
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF,
+    0xC0, 0xA8, 0x01, 0x32};
+
+static uint8_t const filter_bytes[] = {
+    // code, reserved, length: 20
+    0x03, 0x00, 0x00, 0x14,
+    // reserved, prefix length: 120, remote peer port: 443
+    0x00, 0x78, 0x01, 0xBB,
+    // remote peer IP address: ::ffff:198.51.100.0
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF,
+    0xC6, 0x33, 0x64, 0x00};
+// clang-format on
+
+static void test_wire_third_party_option() {
+  auto const request =
+      map_request((socket_address_t){.ip = ip_address_any_v4, .port = 0});
+
+  uint8_t buffer[PCP_PACKET_MAX_SIZE];
+  TEST_ASSERT_EQUAL_size_t(
+      80, write_request_with(&request, 1, &third_party, buffer));
+
+  // the option follows the MAP body, and the header's lifetime is untouched
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(third_party_bytes, buffer + 60,
+                                sizeof(third_party_bytes));
+  uint8_t const lifetime[] = {0x00, 0x00, 0x0E, 0x10};
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(lifetime, buffer + 4, sizeof(lifetime));
+}
+
+static void test_wire_options_in_given_order() {
+  auto const request =
+      map_request((socket_address_t){.ip = ip_address_any_v4, .port = 0});
+  pcp_option_t const options[] = {filter, third_party, filter};
+
+  uint8_t buffer[PCP_PACKET_MAX_SIZE];
+  TEST_ASSERT_EQUAL_size_t(60 + 24 + 20 + 24,
+                           write_request_with(&request, 3, options, buffer));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(filter_bytes, buffer + 60,
+                                sizeof(filter_bytes));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(third_party_bytes, buffer + 84,
+                                sizeof(third_party_bytes));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(filter_bytes, buffer + 104,
+                                sizeof(filter_bytes));
+}
+
+static void test_wire_delete_request_without_filters() {
+  auto request =
+      map_request((socket_address_t){.ip = ip_address_any_v6, .port = 0});
+  request.lifetime = 0;
+  pcp_option_t const options[] = {filter, third_party};
+
+  // RFC 6887 §13.3: FILTER is invalid when deleting, THIRD_PARTY still says
+  // whose mapping it is
+  uint8_t buffer[PCP_PACKET_MAX_SIZE];
+  TEST_ASSERT_EQUAL_size_t(80,
+                           write_request_with(&request, 2, options, buffer));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(third_party_bytes, buffer + 60,
+                                sizeof(third_party_bytes));
+}
+
+static void test_wire_peer_request_with_options() {
+  pcp_request_t const request = {
+      .lifetime = 3600,
+      .protocol = TCP,
+      .port = 12345,
+      .type = PEER,
+      .peer = {.external = {.ip = ip_address_any_v4, .port = 0},
+               .peer = {.ip = ip_address_from_octets(198, 51, 100, 1),
+                        .port = 443}},
+  };
+
+  uint8_t buffer[PCP_PACKET_MAX_SIZE];
+  TEST_ASSERT_EQUAL_size_t(
+      100, write_request_with(&request, 1, &third_party, buffer));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(third_party_bytes, buffer + 80,
+                                sizeof(third_party_bytes));
 }
 
 // clang-format off
@@ -291,6 +397,10 @@ void wire_tests() {
   RUN_TEST(test_wire_map_request);
   RUN_TEST(test_wire_map_request_without_suggestion);
   RUN_TEST(test_wire_peer_request);
+  RUN_TEST(test_wire_third_party_option);
+  RUN_TEST(test_wire_options_in_given_order);
+  RUN_TEST(test_wire_delete_request_without_filters);
+  RUN_TEST(test_wire_peer_request_with_options);
   RUN_TEST(test_wire_read_map_response);
   RUN_TEST(test_wire_read_peer_response);
   RUN_TEST(test_wire_read_announce_response);

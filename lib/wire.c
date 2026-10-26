@@ -10,11 +10,6 @@
 static constexpr size_t PCP_PACKET_HEADER_SIZE = 24;
 static constexpr size_t PCP_OPTION_HEADER_SIZE = 4;
 
-static constexpr size_t PCP_OPTION_SIZE[] = {
-    [THIRD_PARTY] = PCP_OPTION_HEADER_SIZE + 16,
-    [PREFER_FAILURE] = PCP_OPTION_HEADER_SIZE + 0,
-    [FILTER] = PCP_OPTION_HEADER_SIZE + 20};
-
 // requests and responses of the same opcode share their size
 static constexpr size_t PCP_MESSAGE_SIZE[] = {
     [ANNOUNCE] = PCP_PACKET_HEADER_SIZE + 0,
@@ -99,50 +94,70 @@ static void pcp_packet_write_peer_request(view_t dst,
   pcp_packet_body_write_ip_address(dst, 40, &src->peer.peer.ip);
 }
 
-static void pcp_packet_write_option_header(view_t dst,
-                                           size_t cursor,
-                                           uint8_t code,
-                                           uint16_t length) {
-  dst.data[cursor] = code;
-  pcp_packet_write_uint16_t(dst, cursor + 2, length);
-}
-
-static void pcp_packet_write_third_party_option(view_t dst,
-                                                size_t cursor,
-                                                ip_address_t const *internal) {
-  assert(dst.size >= (cursor + PCP_OPTION_SIZE[THIRD_PARTY]));
-  pcp_packet_write_option_header(dst, cursor, THIRD_PARTY,
-                                 PCP_OPTION_SIZE[THIRD_PARTY]);
-  pcp_packet_write_ip_address(dst, 4, internal);
-}
-
-static void pcp_packet_write_prefer_failure_option(view_t /*dst*/,
-                                                   size_t /*cursor*/) {}
-
-static void pcp_packet_write_filter_option(view_t /*dst*/,
-                                           size_t /*cursor*/,
-                                           socket_address_t const * /*peer*/,
-                                           uint8_t /*prefix*/) {}
-
-static void
-pcp_packet_write_option(view_t dst, size_t cursor, pcp_option_t const *option) {
-  assert(option);
-  assert(option->type == THIRD_PARTY || option->type == PREFER_FAILURE ||
-         option->type == FILTER);
-
+// the length of the option's data, without its header (RFC 6887 §7.3)
+static uint16_t pcp_option_length(pcp_option_t const *option) {
   switch (option->type) {
   case THIRD_PARTY:
-    pcp_packet_write_third_party_option(dst, cursor,
-                                        &option->third_party.internal);
-    break;
-  case PREFER_FAILURE:
-    pcp_packet_write_prefer_failure_option(dst, cursor);
+    return 16;
+  case FILTER:
+    return 20;
+  }
+}
+
+// A request deleting the mapping (lifetime 0) leaves out FILTER, which RFC 6887
+// §13.3 forbids there, but keeps THIRD_PARTY: it names the mapping's internal
+// address (§11.1), and without it the server would look for a mapping of the
+// client's own address and report the deletion of a mapping that doesn't exist
+// as SUCCESS (§15.1)
+static bool pcp_option_included(pcp_request_t const *request,
+                                pcp_option_t const *option) {
+  return option->type != FILTER || request->lifetime > 0;
+}
+
+static size_t pcp_option_size(pcp_option_t const *option) {
+  return PCP_OPTION_HEADER_SIZE + pcp_option_length(option);
+}
+
+size_t pcp_packet_request_size(pcp_request_t const *request,
+                               size_t count,
+                               pcp_option_t const options[count]) {
+  assert(request);
+  assert(request->type == MAP || request->type == PEER);
+  assert(count == 0 || options);
+
+  size_t size = PCP_MESSAGE_SIZE[request->type];
+  for (size_t i = 0; i < count; ++i) {
+    if (pcp_option_included(request, &options[i])) {
+      size += pcp_option_size(&options[i]);
+    }
+  }
+  return size;
+}
+
+// returns the cursor behind the option
+static size_t
+pcp_packet_write_option(view_t dst, size_t cursor, pcp_option_t const *option) {
+  auto const length = pcp_option_length(option);
+  assert(dst.size >= cursor + PCP_OPTION_HEADER_SIZE + length);
+
+  // header: code, reserved, length
+  dst.data[cursor] = (uint8_t)option->type;
+  pcp_packet_write_uint16_t(dst, cursor + 2, length);
+
+  auto const data = cursor + PCP_OPTION_HEADER_SIZE;
+  switch (option->type) {
+  case THIRD_PARTY:
+    pcp_packet_write_ip_address(dst, data, &option->third_party.internal);
     break;
   case FILTER:
-    pcp_packet_write_filter_option(dst, cursor, &option->filter.peer,
-                                   option->filter.prefix);
+    // reserved, prefix length, remote peer port, remote peer IP address
+    dst.data[data + 1] = option->filter.prefix;
+    pcp_packet_write_uint16_t(dst, data + 2, option->filter.peer.port);
+    pcp_packet_write_ip_address(dst, data + 4, &option->filter.peer.ip);
     break;
   }
+
+  return data + length;
 }
 
 size_t pcp_packet_write_request(view_t dst,
@@ -152,25 +167,34 @@ size_t pcp_packet_write_request(view_t dst,
                                 size_t count,
                                 pcp_option_t const options[count]) {
   assert(src->type == MAP || src->type == PEER);
-  assert(dst.size >= PCP_MESSAGE_SIZE[src->type]);
   assert(nonce);
 
+  auto const size = pcp_packet_request_size(src, count, options);
+  assert(dst.size >= size);
+
   // takes care of every reserved field, so the writers can skip them
-  memset(dst.data, 0, PCP_MESSAGE_SIZE[src->type]);
+  memset(dst.data, 0, size);
 
-  (src->type == MAP) ? pcp_packet_write_map_request(dst, src, nonce, internal)
-                     : pcp_packet_write_peer_request(dst, src, nonce, internal);
-
-  size_t cursor = PCP_MESSAGE_SIZE[src->type];
-
-  auto const begin = options;
-  auto const end = options + count;
-  for (auto iter = begin; iter != end; ++iter) {
-    pcp_packet_write_option(dst, cursor, iter);
-    cursor += PCP_OPTION_SIZE[iter->type];
+  switch (src->type) {
+  case MAP:
+    pcp_packet_write_map_request(dst, src, nonce, internal);
+    break;
+  case PEER:
+    pcp_packet_write_peer_request(dst, src, nonce, internal);
+    break;
+  case ANNOUNCE:
+    unreachable();
   }
 
-  return cursor;
+  size_t cursor = PCP_MESSAGE_SIZE[src->type];
+  for (size_t i = 0; i < count; ++i) {
+    if (pcp_option_included(src, &options[i])) {
+      cursor = pcp_packet_write_option(dst, cursor, &options[i]);
+    }
+  }
+
+  assert(cursor == size);
+  return size;
 }
 
 static void
