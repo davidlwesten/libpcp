@@ -7,9 +7,9 @@ target_sources(pcpc PRIVATE
   main.c
   transport.c)
 
-target_include_directories(pcpc PRIVATE ${CMAKE_SOURCE_DIR}/lib ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(pcpc PRIVATE ${PROJECT_SOURCE_DIR}/lib ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pcpc
   PUBLIC
     pcp
   PRIVATE
-    project_warnings)
+    pcp_warnings)

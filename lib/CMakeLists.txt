@@ -1,4 +1,5 @@
 add_library(pcp)
+add_library(pcp::pcp ALIAS pcp)
 
 target_compile_features(pcp PUBLIC c_std_23)
 
@@ -18,10 +19,10 @@ target_sources(pcp
 target_sources(pcp
   PUBLIC
   FILE_SET HEADERS
-  BASE_DIRS ${CMAKE_SOURCE_DIR}/include
+  BASE_DIRS ${PROJECT_SOURCE_DIR}/include
     FILES
-      ${CMAKE_SOURCE_DIR}/include/pcp/ip.h
-      ${CMAKE_SOURCE_DIR}/include/pcp/pcp.h)
+      ${PROJECT_SOURCE_DIR}/include/pcp/ip.h
+      ${PROJECT_SOURCE_DIR}/include/pcp/pcp.h)
 
 target_sources(pcp
   PRIVATE
@@ -38,4 +39,4 @@ target_sources(pcp
         ${CMAKE_CURRENT_SOURCE_DIR}/session.h
         ${CMAKE_CURRENT_SOURCE_DIR}/wire.h)
 
-target_link_libraries(pcp PRIVATE project_warnings)
+target_link_libraries(pcp PRIVATE pcp_warnings)

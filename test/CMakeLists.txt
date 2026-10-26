@@ -22,7 +22,7 @@ target_link_libraries(tests
     pcp
     unity)
 
-target_include_directories(tests PRIVATE ${CMAKE_SOURCE_DIR}/lib)
+target_include_directories(tests PRIVATE ${PROJECT_SOURCE_DIR}/lib)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_options(tests

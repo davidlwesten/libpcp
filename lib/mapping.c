@@ -127,6 +127,7 @@ static bool pcp_mapping_matches(pcp_mapping_t const *mapping,
   case ANNOUNCE:
     return false;
   }
+  unreachable();
 }
 
 // ask for the same address again in renewals and re-requests
@@ -287,6 +288,7 @@ static pcp_schedule_t *pcp_mapping_schedule(pcp_mapping_t *mapping) {
   case RELEASED:
     return nullptr;
   }
+  unreachable();
 }
 
 static void pcp_mapping_on_exhausted(pcp_mapping_t *mapping) {
@@ -355,6 +357,7 @@ static bool pcp_mapping_report(pcp_mapping_t *mapping, pcp_event_t *out) {
     // released, so no more events
     return false;
   }
+  unreachable();
 }
 
 // write the request into the send buffer
@@ -433,4 +436,5 @@ pcp_optional_time_ms_t pcp_mapping_deadline(pcp_mapping_t const *mapping) {
   case RELEASED:
     return (pcp_optional_time_ms_t){.has_value = false, .value = 0};
   }
+  unreachable();
 }

@@ -101,6 +101,7 @@ pcp_schedule_status_t pcp_schedule_poll(pcp_schedule_t const *schedule,
     return now >= pcp_schedule_expiry(schedule) ? PCP_SCHEDULE_EXHAUSTED
                                                 : PCP_SCHEDULE_DUE;
   }
+  unreachable();
 }
 
 // RAND from RFC 6887 section 8.1.1 in per mille (-100 to 100), 0 if the RNG
