@@ -127,6 +127,14 @@ size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src) {
   return result.has_value ? result.value : 0;
 }
 
+ip_network_t ip_network_from_address(ip_address_t address, uint8_t prefix) {
+  return (ip_network_t){
+      .address = address,
+      .prefix =
+          ip_address_is_ipv4_mapped(&address) ? (uint8_t)(96 + prefix) : prefix,
+  };
+}
+
 int ip_adddress_cmp(ip_address_t const *lhs, ip_address_t const *rhs) {
   return memcmp(lhs, rhs, sizeof(ip_address_t));
 }

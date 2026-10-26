@@ -42,6 +42,18 @@ int ip_address_cmp(ip_address_t const *lhs, ip_address_t const *rhs);
 /// Whether `ip` is an IPv4 address, i.e. IPv4-mapped (::ffff:a.b.c.d)
 bool ip_address_is_ipv4_mapped(const ip_address_t *ip);
 
+/// A network in CIDR notation. Like ip_address_t, the prefix counts bits of the
+/// 128-bit address, so an IPv4 network's prefix is 96 plus its usual length
+typedef struct ip_network {
+  ip_address_t address;
+  uint8_t prefix;
+} ip_network_t;
+
+/// The network of `address` with its usual prefix length, i.e. 96 is added to
+/// `prefix` for an IPv4 address. E.g. 203.0.113.0/24 is
+/// ip_network_from_address(ip_address_from_octets(203, 0, 113, 0), 24)
+ip_network_t ip_network_from_address(ip_address_t address, uint8_t prefix);
+
 typedef uint16_t port_t;
 
 typedef struct socket_address {

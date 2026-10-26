@@ -898,8 +898,9 @@ static void test_session_options_must_fit_into_packet() {
   begin(100);
   pcp_option_t options[50] = {};
   for (size_t i = 0; i < 50; ++i) {
-    options[i] =
-        (pcp_option_t){.type = FILTER, .filter = {.peer = {}, .prefix = 128}};
+    options[i] = (pcp_option_t){
+        .type = FILTER,
+        .filter = {.peers = {.address = {}, .prefix = 128}, .port = 0}};
   }
 
   // 60 bytes of MAP and 50 filters of 24 bytes

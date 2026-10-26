@@ -109,6 +109,20 @@ static void test_ip_address_constants() {
   TEST_ASSERT_EQUAL_STRING("::1", string);
 }
 
+static void test_ip_network_from_address() {
+  // the usual CIDR prefix, stored for the 128-bit address
+  auto network =
+      ip_network_from_address(ip_address_from_octets(203, 0, 113, 0), 24);
+  TEST_ASSERT_EQUAL_UINT8(120, network.prefix);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(ip_address_from_octets(203, 0, 113, 0).addr,
+                                network.address.addr, 16);
+
+  auto const v6 = ip_address_from_string("2001:db8::").value;
+  network = ip_network_from_address(v6, 32);
+  TEST_ASSERT_EQUAL_UINT8(32, network.prefix);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(v6.addr, network.address.addr, 16);
+}
+
 void ip_tests() {
   RUN_TEST(test_ip_address_from_in_addr);
   RUN_TEST(test_ip_address_from_in6_addr);
@@ -117,4 +131,5 @@ void ip_tests() {
   RUN_TEST(test_ip_address_constants);
   RUN_TEST(test_socket_address_ntop_ipv4);
   RUN_TEST(test_socket_address_ntop_ipv6);
+  RUN_TEST(test_ip_network_from_address);
 }

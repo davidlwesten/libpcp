@@ -48,6 +48,7 @@ set(TEST_CASES
   test_ip_address_constants
   test_socket_address_ntop_ipv4
   test_socket_address_ntop_ipv6
+  test_ip_network_from_address
   test_epoch_first_response_valid
   test_epoch_steady_clocks_valid
   test_epoch_slack_valid

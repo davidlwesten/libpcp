@@ -86,10 +86,10 @@ typedef struct pcp_option {
   enum {
     /// Request the mapping on behalf of another internal host (MAP and PEER)
     THIRD_PARTY = 1,
-    /// Only let traffic from `filter.peer` through (MAP only). The server adds
-    /// the filters of every request to the mapping's, renewals included, and a
-    /// prefix of 0 removes all of them (RFC 6887 §13.3). Left out when the
-    /// mapping is released
+    /// Only let traffic from `filter.peers` through (MAP only). The server
+    /// adds the filters of every request to the mapping's, renewals included,
+    /// and a prefix of 0 removes all of them (RFC 6887 §13.3). Left out when
+    /// the mapping is released
     FILTER = 3,
   } type;
   union {
@@ -97,10 +97,8 @@ typedef struct pcp_option {
       ip_address_t internal;
     } third_party;
     struct {
-      socket_address_t peer; ///< port 0 for any port
-      /// The number of leading bits of the 128-bit `peer.ip` that must match,
-      /// i.e. 96 plus the usual prefix length for IPv4
-      uint8_t prefix;
+      ip_network_t peers; ///< see ip_network_from_address
+      port_t port;        ///< 0 for any port
     } filter;
   };
 } pcp_option_t;

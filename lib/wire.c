@@ -151,9 +151,9 @@ pcp_packet_write_option(view_t dst, size_t cursor, pcp_option_t const *option) {
     break;
   case FILTER:
     // reserved, prefix length, remote peer port, remote peer IP address
-    dst.data[data + 1] = option->filter.prefix;
-    pcp_packet_write_uint16_t(dst, data + 2, option->filter.peer.port);
-    pcp_packet_write_ip_address(dst, data + 4, &option->filter.peer.ip);
+    dst.data[data + 1] = option->filter.peers.prefix;
+    pcp_packet_write_uint16_t(dst, data + 2, option->filter.port);
+    pcp_packet_write_ip_address(dst, data + 4, &option->filter.peers.address);
     break;
   }
 

@@ -143,10 +143,10 @@ static pcp_option_t const third_party = {
 
 static pcp_option_t const filter = {
     .type = FILTER,
-    .filter = {.peer = {.ip = {.addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF,
-                                        0xFF, 198, 51, 100, 0}},
-                        .port = 443},
-               .prefix = 120},
+    .filter = {.peers = {.address = {.addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                              0xFF, 0xFF, 198, 51, 100, 0}},
+                         .prefix = 120},
+               .port = 443},
 };
 
 // clang-format off
