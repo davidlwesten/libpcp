@@ -12,7 +12,8 @@ bool pcp_nonce_generate(pcp_rng_t rng, pcp_nonce_t *out);
 // What the server granted
 typedef struct pcp_mapping_lease {
   socket_address_t external;
-  pcp_time_ms_t expiry;
+  pcp_time_ms_t granted;
+  pcp_time_ms_t lifetime;
 } pcp_mapping_lease_t;
 
 // Only changed by the pcp_mapping_enter_* functions in mapping.c, which replace
@@ -35,6 +36,7 @@ typedef struct pcp_mapping_state {
     } confirmed;
     struct {
       pcp_mapping_lease_t lease;
+      pcp_schedule_t schedule; // renewals
     } active;
     struct {
       pcp_result_t result;
@@ -68,7 +70,8 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
  */
 void pcp_mapping_on_response(pcp_mapping_t *mapping,
                              pcp_response_t const *response,
-                             pcp_time_ms_t now);
+                             pcp_time_ms_t now,
+                             pcp_rng_t rng);
 
 /**
  * @brief Request the mapping again because the server lost its state

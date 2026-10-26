@@ -57,6 +57,11 @@ set(TEST_CASES
   test_epoch_server_too_fast
   test_epoch_stored_even_if_invalid
   test_schedule_due_at_start
+  test_schedule_renewal_first_window
+  test_schedule_renewal_later_windows
+  test_schedule_renewal_at_least_4s_apart
+  test_schedule_renewal_exhausted_at_expiry
+  test_schedule_defer
   test_schedule_backoff_without_jitter
   test_schedule_backoff_capped_at_mrt
   test_schedule_jitter_bounds
@@ -77,13 +82,21 @@ set(TEST_CASES
   test_session_wakes_at_deadlines
   test_session_server_reset_requests_again
   test_session_success_maps
-  test_session_mapping_expires
+  test_session_renews_mapping
+  test_session_renewal_keeps_address
+  test_session_renewal_changes_address
+  test_session_renewal_temporary_error_keeps_mapping
+  test_session_renewal_refused_fails
+  test_session_mapping_expires_without_renewal
   test_session_temporary_error_retries_later
   test_session_permanent_error_fails
   test_session_unknown_result_fails
   test_session_response_matches_its_mapping_only
   test_session_peer_response_must_match_remote_peer
   test_session_duplicate_response_ignored
+  test_session_suggests_any_ipv4_address
+  test_session_suggests_any_ipv6_address
+  test_session_suggests_granted_address_afterwards
   test_session_server_reset_unmaps_active_mapping
   test_session_server_reset_unmaps_once
   test_session_server_reset_pending_mapping_not_unmapped

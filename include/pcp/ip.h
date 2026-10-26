@@ -39,6 +39,9 @@ size_t ip_address_ntop(size_t size, char dst[size], const ip_address_t *src);
 
 int ip_address_cmp(ip_address_t const *lhs, ip_address_t const *rhs);
 
+/// Whether `ip` is an IPv4 address, i.e. IPv4-mapped (::ffff:a.b.c.d)
+bool ip_address_is_ipv4_mapped(const ip_address_t *ip);
+
 typedef uint16_t port_t;
 
 typedef struct socket_address {

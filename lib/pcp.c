@@ -116,6 +116,17 @@ pcp_session_request(pcp_session_t *session,
   };
 }
 
+// no preference for the external address, other than it being in the client's
+// own address family since the server assigns one of the suggested family
+static socket_address_t pcp_session_any_external(pcp_session_t const *session) {
+  return (socket_address_t){
+      .ip = ip_address_is_ipv4_mapped(&session->config.local)
+                ? ip_address_any_v4
+                : ip_address_any_v6,
+      .port = 0,
+  };
+}
+
 pcp_handle_or_error_t
 pcp_session_map_request(pcp_session_t *session,
                         pcp_time_s_t lifetime,
@@ -123,18 +134,17 @@ pcp_session_map_request(pcp_session_t *session,
                         port_t port,
                         size_t count,
                         pcp_option_t const options[count]) {
-  return pcp_session_request(session,
-                             (pcp_request_t){
-                                 .lifetime = lifetime,
-                                 .protocol = protocol,
-                                 .port = port,
-                                 .type = MAP,
-                                 .map =
-                                     {
-                                         .external = {0},
-                                     },
-                             },
-                             count, options);
+  assert(session);
+  return pcp_session_request(
+      session,
+      (pcp_request_t){
+          .lifetime = lifetime,
+          .protocol = protocol,
+          .port = port,
+          .type = MAP,
+          .map = {.external = pcp_session_any_external(session)},
+      },
+      count, options);
 }
 
 pcp_handle_or_error_t
@@ -145,19 +155,17 @@ pcp_session_peer_request(pcp_session_t *session,
                          socket_address_t peer,
                          size_t count,
                          pcp_option_t const options[count]) {
-  return pcp_session_request(session,
-                             (pcp_request_t){
-                                 .lifetime = lifetime,
-                                 .protocol = protocol,
-                                 .port = port,
-                                 .type = PEER,
-                                 .peer =
-                                     {
-                                         .external = {0},
-                                         .peer = peer,
-                                     },
-                             },
-                             count, options);
+  assert(session);
+  return pcp_session_request(
+      session,
+      (pcp_request_t){
+          .lifetime = lifetime,
+          .protocol = protocol,
+          .port = port,
+          .type = PEER,
+          .peer = {.external = pcp_session_any_external(session), .peer = peer},
+      },
+      count, options);
 }
 
 void pcp_session_on_datagram(pcp_session_t *session,
@@ -184,6 +192,6 @@ void pcp_session_on_datagram(pcp_session_t *session,
   }
 
   for (auto iter = session->mappings; iter; iter = iter->next) {
-    pcp_mapping_on_response(iter, &response, now);
+    pcp_mapping_on_response(iter, &response, now, session->config.rng);
   }
 }

@@ -15,13 +15,14 @@ static void pcp_mapping_enter_pending(pcp_mapping_t *mapping,
                                       pcp_time_ms_t not_before) {
   // also used to restart an already PENDING mapping's schedule
   mapping->state = (pcp_mapping_state_t){.type = PENDING};
-  pcp_schedule_start(&mapping->state.pending.schedule, PCP_BACKOFF_DEFAULT,
-                     not_before);
+  pcp_schedule_backoff(&mapping->state.pending.schedule, PCP_BACKOFF_DEFAULT,
+                       not_before);
 }
 
 static void pcp_mapping_enter_confirmed(pcp_mapping_t *mapping,
                                         pcp_mapping_lease_t lease) {
-  assert(mapping->state.type == PENDING);
+  // from ACTIVE if a renewal came back with a different external address
+  assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
   mapping->state = (pcp_mapping_state_t){
       .type = CONFIRMED,
       .confirmed = {.lease = lease},
@@ -29,12 +30,16 @@ static void pcp_mapping_enter_confirmed(pcp_mapping_t *mapping,
 }
 
 static void pcp_mapping_enter_active(pcp_mapping_t *mapping,
-                                     pcp_mapping_lease_t lease) {
-  assert(mapping->state.type == CONFIRMED);
+                                     pcp_mapping_lease_t lease,
+                                     pcp_rng_t rng) {
+  // also used for a successful renewal that kept the external address
+  assert(mapping->state.type == CONFIRMED || mapping->state.type == ACTIVE);
   mapping->state = (pcp_mapping_state_t){
       .type = ACTIVE,
       .active = {.lease = lease},
   };
+  pcp_schedule_renewal(&mapping->state.active.schedule, lease.granted,
+                       lease.lifetime, rng);
 }
 
 static void pcp_mapping_enter_lost(pcp_mapping_t *mapping) {
@@ -44,7 +49,7 @@ static void pcp_mapping_enter_lost(pcp_mapping_t *mapping) {
 
 static void pcp_mapping_enter_refused(pcp_mapping_t *mapping,
                                       pcp_result_t result) {
-  assert(mapping->state.type == PENDING);
+  assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
   mapping->state = (pcp_mapping_state_t){
       .type = REFUSED,
       .refused = {.result = result},
@@ -100,6 +105,23 @@ static bool pcp_mapping_matches(pcp_mapping_t const *mapping,
   }
 }
 
+// later requests for the mapping (renewals, or requesting it again after it was
+// lost) ask the server to keep what it granted
+static void pcp_mapping_suggest(pcp_mapping_t *mapping,
+                                socket_address_t external) {
+  switch (mapping->request.type) {
+  case MAP:
+    mapping->request.map.external = external;
+    break;
+  case PEER:
+    mapping->request.peer.external = external;
+    break;
+  case ANNOUNCE:
+    assert(false && "mappings are never ANNOUNCE requests");
+    break;
+  }
+}
+
 // RFC 6887 §7.4: errors the server expects to go away by themselves, with the
 // lifetime saying when to try again
 static bool pcp_result_is_temporary(pcp_result_t result) {
@@ -114,32 +136,105 @@ static bool pcp_result_is_temporary(pcp_result_t result) {
   }
 }
 
+static void pcp_mapping_on_success(pcp_mapping_t *mapping,
+                                   pcp_response_t const *response,
+                                   pcp_time_ms_t now,
+                                   pcp_rng_t rng) {
+  pcp_mapping_lease_t const lease = {
+      .external = response->type == MAP ? response->map.external
+                                        : response->peer.external,
+      .granted = now,
+      .lifetime = pcp_seconds(response->lifetime),
+  };
+  pcp_mapping_suggest(mapping, lease.external);
+
+  // a renewal that kept the address has nothing to tell the application
+  if (mapping->state.type == ACTIVE &&
+      socket_address_cmp(&lease.external,
+                         &mapping->state.active.lease.external) == 0) {
+    pcp_mapping_enter_active(mapping, lease, rng);
+  } else {
+    pcp_mapping_enter_confirmed(mapping, lease);
+  }
+}
+
+static void pcp_mapping_on_temporary_error(pcp_mapping_t *mapping,
+                                           pcp_response_t const *response,
+                                           pcp_time_ms_t now) {
+  assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
+
+  auto const not_before = now + pcp_seconds(response->lifetime);
+
+  switch (mapping->state.type) {
+  case PENDING:
+    pcp_mapping_enter_pending(mapping, not_before);
+    break;
+  case ACTIVE:
+    // the lease is still valid, so keep it and renew later. If that's past its
+    // expiry, the mapping is lost then
+    pcp_schedule_defer(&mapping->state.active.schedule, not_before);
+    break;
+  default:
+    unreachable();
+  }
+}
+
 void pcp_mapping_on_response(pcp_mapping_t *mapping,
                              pcp_response_t const *response,
-                             pcp_time_ms_t now) {
+                             pcp_time_ms_t now,
+                             pcp_rng_t rng) {
   assert(mapping);
   assert(response);
 
-  // only PENDING mappings are waiting for a response, anything else is e.g. a
-  // duplicate response to a request that was retransmitted
-  if (mapping->state.type != PENDING ||
-      !pcp_mapping_matches(mapping, response)) {
+  // only PENDING and ACTIVE mappings send requests, so only they can be
+  // waiting for a response
+  switch (mapping->state.type) {
+  case PENDING:
+  case ACTIVE:
+    break;
+  case CONFIRMED:
+  case LOST:
+  case REFUSED:
+  case FAILED:
+    return;
+  }
+
+  if (!pcp_mapping_matches(mapping, response)) {
     return;
   }
 
   if (response->result == SUCCESS) {
-    pcp_mapping_enter_confirmed(
-        mapping,
-        (pcp_mapping_lease_t){
-            .external = response->type == MAP ? response->map.external
-                                              : response->peer.external,
-            .expiry = now + pcp_seconds(response->lifetime),
-        });
+    pcp_mapping_on_success(mapping, response, now, rng);
   } else if (pcp_result_is_temporary(response->result)) {
-    pcp_mapping_enter_pending(mapping, now + pcp_seconds(response->lifetime));
+    pcp_mapping_on_temporary_error(mapping, response, now);
   } else {
     pcp_mapping_enter_refused(mapping, response->result);
   }
+}
+
+// writes the mapping's request for the application to send
+static bool pcp_mapping_send(pcp_mapping_t *mapping,
+                             pcp_schedule_t *schedule,
+                             pcp_time_ms_t now,
+                             pcp_config_t const *config,
+                             pcp_event_t *out) {
+  auto const size = pcp_packet_write_request(
+      (view_t){.size = config->buffer.size, .data = config->buffer.data},
+      &mapping->request, &mapping->nonce, &config->local, mapping->count,
+      mapping->options);
+
+  // the application sends the request in response to this event, so this is
+  // the transmission as far as the schedule is concerned
+  pcp_schedule_advance(schedule, now, config->rng);
+  *out = (pcp_event_t){
+      .type = PCP_EVENT_SEND,
+      .send =
+          {
+              .size = size,
+              .data = config->buffer.data,
+          },
+  };
+  return true;
 }
 
 static bool pcp_mapping_update_pending(pcp_mapping_t *mapping,
@@ -151,25 +246,8 @@ static bool pcp_mapping_update_pending(pcp_mapping_t *mapping,
   switch (pcp_schedule_poll(schedule, now)) {
   case PCP_SCHEDULE_WAIT:
     return false;
-  case PCP_SCHEDULE_DUE: {
-    auto const size = pcp_packet_write_request(
-        (view_t){.size = config->buffer.size, .data = config->buffer.data},
-        &mapping->request, &mapping->nonce, &config->local, mapping->count,
-        mapping->options);
-
-    // the application sends the request in response to this event, so this is
-    // the transmission as far as the schedule is concerned
-    pcp_schedule_advance(schedule, now, config->rng);
-    *out = (pcp_event_t){
-        .type = PCP_EVENT_SEND,
-        .send =
-            {
-                .size = size,
-                .data = config->buffer.data,
-            },
-    };
-    return true;
-  }
+  case PCP_SCHEDULE_DUE:
+    return pcp_mapping_send(mapping, schedule, now, config, out);
   case PCP_SCHEDULE_EXHAUSTED:
     // only bounded schedules run out, i.e. deleting a mapping the application
     // already released, so there's nobody to notify
@@ -179,9 +257,10 @@ static bool pcp_mapping_update_pending(pcp_mapping_t *mapping,
 }
 
 static bool pcp_mapping_update_confirmed(pcp_mapping_t *mapping,
+                                         pcp_config_t const *config,
                                          pcp_event_t *out) {
   auto const lease = mapping->state.confirmed.lease;
-  pcp_mapping_enter_active(mapping, lease);
+  pcp_mapping_enter_active(mapping, lease, config->rng);
 
   *out = (pcp_event_t){
       .type = PCP_EVENT_MAPPED,
@@ -210,15 +289,20 @@ static bool pcp_mapping_update_lost(pcp_mapping_t *mapping, pcp_event_t *out) {
 
 static bool pcp_mapping_update_active(pcp_mapping_t *mapping,
                                       pcp_time_ms_t now,
+                                      pcp_config_t const *config,
                                       pcp_event_t *out) {
-  if (now < mapping->state.active.lease.expiry) {
-    return false;
-  }
+  auto const schedule = &mapping->state.active.schedule;
 
-  // the server let the mapping lapse. Until renewals keep it alive, this is how
-  // the application learns its address is gone
-  pcp_mapping_enter_lost(mapping);
-  return pcp_mapping_update_lost(mapping, out);
+  switch (pcp_schedule_poll(schedule, now)) {
+  case PCP_SCHEDULE_WAIT:
+    return false;
+  case PCP_SCHEDULE_DUE:
+    return pcp_mapping_send(mapping, schedule, now, config, out);
+  case PCP_SCHEDULE_EXHAUSTED:
+    // no renewal succeeded before the lease expired
+    pcp_mapping_enter_lost(mapping);
+    return pcp_mapping_update_lost(mapping, out);
+  }
 }
 
 static bool pcp_mapping_update_refused(pcp_mapping_t *mapping,
@@ -273,9 +357,9 @@ bool pcp_mapping_update(pcp_mapping_t *mapping,
   case PENDING:
     return pcp_mapping_update_pending(mapping, now, config, out);
   case CONFIRMED:
-    return pcp_mapping_update_confirmed(mapping, out);
+    return pcp_mapping_update_confirmed(mapping, config, out);
   case ACTIVE:
-    return pcp_mapping_update_active(mapping, now, out);
+    return pcp_mapping_update_active(mapping, now, config, out);
   case LOST:
     return pcp_mapping_update_lost(mapping, out);
   case REFUSED:
@@ -297,7 +381,7 @@ pcp_optional_time_ms_t pcp_mapping_deadline(pcp_mapping_t const *mapping) {
   case ACTIVE:
     return (pcp_optional_time_ms_t){
         .has_value = true,
-        .value = mapping->state.active.lease.expiry,
+        .value = pcp_schedule_deadline(&mapping->state.active.schedule),
     };
   case CONFIRMED:
   case LOST:

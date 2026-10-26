@@ -11,16 +11,28 @@ static uint16_t rng_value;
 static uint8_t send_buffer[PCP_PACKET_MAX_SIZE];
 static pcp_session_t *session;
 
-static pcp_session_t *begin(uint16_t value) {
+static ip_address_t const external_ip = {
+    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 203, 0, 113, 7}};
+static constexpr port_t external_port = 54321;
+
+// what the server grants in responses from deliver(), reset by begin_with()
+static socket_address_t granted;
+
+static pcp_session_t *begin_with(uint16_t value, ip_address_t local) {
   rng_value = value;
+  granted = (socket_address_t){.ip = external_ip, .port = external_port};
   session = pcp_session_begin((pcp_config_t){
-      .local = ip_address_loopback_v4,
+      .local = local,
       .allocator = {0},
       .rng = {.random = test_rng_fixed, .ctx = &rng_value},
       .buffer = {.size = sizeof(send_buffer), .data = send_buffer},
   });
   TEST_ASSERT_NOT_NULL(session);
   return session;
+}
+
+static pcp_session_t *begin(uint16_t value) {
+  return begin_with(value, ip_address_loopback_v4);
 }
 
 static void end() {
@@ -150,10 +162,6 @@ static void write_uint32(uint8_t dst[4], uint32_t value) {
   dst[3] = (uint8_t)value;
 }
 
-static ip_address_t const external_ip = {
-    .addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 203, 0, 113, 7}};
-static constexpr port_t external_port = 54321;
-
 // delivers a well-formed response with the given epoch time. With a mapping it
 // answers that mapping's request (with `peer` replacing its remote peer if
 // given), otherwise its body doesn't match any mapping
@@ -185,9 +193,9 @@ static void deliver(pcp_time_ms_t now,
     }
   }
 
-  data[42] = (uint8_t)(external_port >> 8);
-  data[43] = (uint8_t)external_port;
-  memcpy(data + 44, external_ip.addr, sizeof(external_ip.addr));
+  data[42] = (uint8_t)(granted.port >> 8);
+  data[43] = (uint8_t)granted.port;
+  memcpy(data + 44, granted.ip.addr, sizeof(granted.ip.addr));
 
   pcp_session_on_datagram(session, now, size, data);
 }
@@ -246,6 +254,21 @@ static void establish(pcp_handle_t handle, pcp_time_ms_t now) {
   TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
 }
 
+// the suggested external address in the request the session last asked the
+// application to send
+static socket_address_t suggested() {
+  socket_address_t result = {
+      .port = (port_t)(send_buffer[42] << 8 | send_buffer[43]),
+  };
+  memcpy(result.ip.addr, send_buffer + 44, sizeof(result.ip.addr));
+  return result;
+}
+
+// with the fake RNG at 100, renewals happen 100/65535 into each window, e.g.
+// 1/2 + 1/8 * 100/65535 of an hour for the first one
+static constexpr pcp_time_ms_t first_renewal = 1'800'000 + 686;
+static constexpr pcp_time_ms_t second_renewal = 2'700'000 + 343;
+
 static void test_session_success_maps() {
   begin(100);
   auto const handle = map();
@@ -260,18 +283,104 @@ static void test_session_success_maps() {
                                 16);
   TEST_ASSERT_EQUAL_UINT16(external_port, event.mapped.external.port);
 
-  // no more retransmissions, just the lifetime running out
+  // no more retransmissions, the next thing is renewing it
   TEST_ASSERT_EQUAL_size_t(0, send_due(500));
-  TEST_ASSERT_EQUAL_UINT64(500 + 3'600'000, deadline);
+  TEST_ASSERT_EQUAL_UINT64(500 + first_renewal, deadline);
   end();
 }
 
-static void test_session_mapping_expires() {
+static void test_session_renews_mapping() {
   begin(100);
   auto const handle = map();
   establish(handle, 0);
 
-  TEST_ASSERT_EQUAL_size_t(0, send_due(3'599'999));
+  TEST_ASSERT_EQUAL_size_t(0, send_due(first_renewal - 1));
+  TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
+
+  // asking to keep the granted address, and retrying closer to expiry
+  auto const suggestion = suggested();
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(external_ip.addr, suggestion.ip.addr, 16);
+  TEST_ASSERT_EQUAL_UINT16(external_port, suggestion.port);
+  TEST_ASSERT_EQUAL_UINT64(second_renewal, deadline);
+  end();
+}
+
+static void test_session_renewal_keeps_address() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
+
+  // nothing changed for the application, the lease just starts over
+  respond(handle, 1'801'000, SUCCESS, 3600);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1'801'000));
+  TEST_ASSERT_EQUAL_UINT64(1'801'000 + first_renewal, deadline);
+  end();
+}
+
+static void test_session_renewal_changes_address() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
+
+  granted = (socket_address_t){.ip = ip_address_from_octets(203, 0, 113, 8),
+                               .port = 40000};
+  respond(handle, 1'801'000, SUCCESS, 3600);
+
+  auto const event = next_event(1'801'000);
+  TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(granted.ip.addr, event.mapped.external.ip.addr,
+                                16);
+  TEST_ASSERT_EQUAL_UINT16(40000, event.mapped.external.port);
+
+  // and the next renewal asks to keep the new one
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1'801'000 + first_renewal));
+  TEST_ASSERT_EQUAL_UINT16(40000, suggested().port);
+  end();
+}
+
+static void test_session_renewal_temporary_error_keeps_mapping() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
+
+  // the lease is still valid, so the address is too. Just renew later
+  respond(handle, 1'801'000, NO_RESOURCES, 1200);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1'801'000));
+  TEST_ASSERT_EQUAL_UINT64(3'001'000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3'001'000));
+  end();
+}
+
+static void test_session_renewal_refused_fails() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(first_renewal));
+
+  respond(handle, 1'801'000, NOT_AUTHORIZED, 0);
+
+  auto const event = next_event(1'801'000);
+  TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(handle, event.failed.handle);
+  TEST_ASSERT_EQUAL(NOT_AUTHORIZED, event.failed.result);
+  end();
+}
+
+static void test_session_mapping_expires_without_renewal() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  // the server never answers the renewals
+  size_t renewals = 0;
+  while (deadline < 3'600'000) {
+    renewals += send_due(deadline);
+  }
+  TEST_ASSERT_GREATER_OR_EQUAL_size_t(5, renewals);
 
   // the application learns its address is gone, and it's requested again
   auto const event = next_event(3'600'000);
@@ -383,9 +492,47 @@ static void test_session_duplicate_response_ignored() {
   auto const handle = map();
   establish(handle, 0);
 
-  // e.g. the answer to a retransmission of the same request
+  // e.g. the answer to a retransmission of the same request, which is just
+  // like a renewal that kept the address
   respond(handle, 1'000, SUCCESS, 3600);
   TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, next_event(1'000).type);
+  end();
+}
+
+static void test_session_suggests_any_ipv4_address() {
+  begin(100);
+  map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  auto const suggestion = suggested();
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(ip_address_any_v4.addr, suggestion.ip.addr, 16);
+  TEST_ASSERT_EQUAL_UINT16(0, suggestion.port);
+  end();
+}
+
+static void test_session_suggests_any_ipv6_address() {
+  begin_with(100, ip_address_loopback_v6);
+  map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  auto const suggestion = suggested();
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(ip_address_any_v6.addr, suggestion.ip.addr, 16);
+  TEST_ASSERT_EQUAL_UINT16(0, suggestion.port);
+  end();
+}
+
+static void test_session_suggests_granted_address_afterwards() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  // requested again once it lapsed, asking to keep the same address
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(3'600'000).type);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3'600'000));
+
+  auto const suggestion = suggested();
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(external_ip.addr, suggestion.ip.addr, 16);
+  TEST_ASSERT_EQUAL_UINT16(external_port, suggestion.port);
   end();
 }
 
@@ -506,13 +653,21 @@ void session_tests() {
   RUN_TEST(test_session_wakes_at_deadlines);
   RUN_TEST(test_session_server_reset_requests_again);
   RUN_TEST(test_session_success_maps);
-  RUN_TEST(test_session_mapping_expires);
+  RUN_TEST(test_session_renews_mapping);
+  RUN_TEST(test_session_renewal_keeps_address);
+  RUN_TEST(test_session_renewal_changes_address);
+  RUN_TEST(test_session_renewal_temporary_error_keeps_mapping);
+  RUN_TEST(test_session_renewal_refused_fails);
+  RUN_TEST(test_session_mapping_expires_without_renewal);
   RUN_TEST(test_session_temporary_error_retries_later);
   RUN_TEST(test_session_permanent_error_fails);
   RUN_TEST(test_session_unknown_result_fails);
   RUN_TEST(test_session_response_matches_its_mapping_only);
   RUN_TEST(test_session_peer_response_must_match_remote_peer);
   RUN_TEST(test_session_duplicate_response_ignored);
+  RUN_TEST(test_session_suggests_any_ipv4_address);
+  RUN_TEST(test_session_suggests_any_ipv6_address);
+  RUN_TEST(test_session_suggests_granted_address_afterwards);
   RUN_TEST(test_session_server_reset_unmaps_active_mapping);
   RUN_TEST(test_session_server_reset_unmaps_once);
   RUN_TEST(test_session_server_reset_pending_mapping_not_unmapped);

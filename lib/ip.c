@@ -13,7 +13,7 @@ constexpr char IPV4_MAPPED_PREFIX[] = "\0\0\0\0\0\0\0\0\0\0\xFF\xFF";
 
 static size_t min(size_t a, size_t b) { return a < b ? a : b; }
 
-static bool ip_address_is_ipv4_mapped(const ip_address_t *ip) {
+bool ip_address_is_ipv4_mapped(const ip_address_t *ip) {
   assert(ip);
   return memcmp(ip->addr, IPV4_MAPPED_PREFIX, 12) == 0;
 }
