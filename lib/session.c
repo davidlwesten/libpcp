@@ -158,13 +158,12 @@ static socket_address_t pcp_session_any_external(pcp_session_t const *session) {
   };
 }
 
-pcp_handle_or_error_t
-pcp_session_map_request(pcp_session_t *session,
-                        pcp_time_s_t lifetime,
-                        pcp_protocol_t protocol,
-                        port_t port,
-                        size_t count,
-                        pcp_option_t const options[count]) {
+pcp_handle_or_error_t pcp_session_map_request(pcp_session_t *session,
+                                              pcp_time_s_t lifetime,
+                                              pcp_protocol_t protocol,
+                                              port_t port,
+                                              size_t count,
+                                              pcp_option_t const options[]) {
   assert(session);
   // lifetime 0 means delete
   assert(lifetime > 0);
@@ -183,14 +182,13 @@ pcp_session_map_request(pcp_session_t *session,
       count, options);
 }
 
-pcp_handle_or_error_t
-pcp_session_peer_request(pcp_session_t *session,
-                         pcp_time_s_t lifetime,
-                         pcp_protocol_t protocol,
-                         port_t port,
-                         socket_address_t peer,
-                         size_t count,
-                         pcp_option_t const options[count]) {
+pcp_handle_or_error_t pcp_session_peer_request(pcp_session_t *session,
+                                               pcp_time_s_t lifetime,
+                                               pcp_protocol_t protocol,
+                                               port_t port,
+                                               socket_address_t peer,
+                                               size_t count,
+                                               pcp_option_t const options[]) {
   assert(session);
   // lifetime 0 means delete
   assert(lifetime > 0);
@@ -244,7 +242,7 @@ void pcp_session_release(pcp_session_t *session, pcp_handle_t handle) {
 void pcp_session_on_datagram(pcp_session_t *session,
                              pcp_time_ms_t now,
                              size_t size,
-                             uint8_t const data[size]) {
+                             uint8_t const data[]) {
   assert(session);
   assert(data);
 

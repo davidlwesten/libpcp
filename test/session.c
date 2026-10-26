@@ -270,7 +270,7 @@ static void establish(pcp_handle_t handle, pcp_time_ms_t now) {
 
   auto const event = next_event(now);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.mapped.handle);
 }
 
 // the suggested external address in the request the session last asked the
@@ -297,7 +297,7 @@ static void test_session_success_maps() {
 
   auto const event = next_event(500);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.mapped.handle);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(external_ip.addr, event.mapped.external.ip.addr,
                                 16);
   TEST_ASSERT_EQUAL_UINT16(external_port, event.mapped.external.port);
@@ -349,7 +349,7 @@ static void test_session_renewal_changes_address() {
 
   auto const event = next_event(1801000);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.mapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.mapped.handle);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(granted.ip.addr, event.mapped.external.ip.addr,
                                 16);
   TEST_ASSERT_EQUAL_UINT16(40000, event.mapped.external.port);
@@ -384,7 +384,7 @@ static void test_session_renewal_refused_fails() {
 
   auto const event = next_event(1801000);
   TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.failed.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.failed.handle);
   TEST_ASSERT_EQUAL(NOT_AUTHORIZED, event.failed.result);
   end();
 }
@@ -404,7 +404,7 @@ static void test_session_mapping_expires_without_renewal() {
   // the application learns its address is gone, and it's requested again
   auto const event = next_event(3600000);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.unmapped.handle);
   TEST_ASSERT_EQUAL_size_t(1, send_due(3600000));
   TEST_ASSERT_EQUAL_UINT64(3603000, deadline);
   end();
@@ -437,7 +437,7 @@ static void test_session_permanent_error_fails() {
 
   auto event = next_event(500);
   TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.failed.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.failed.handle);
   TEST_ASSERT_EQUAL(NOT_AUTHORIZED, event.failed.result);
 
   // nothing left to do for it, ever, so it's freed without being released
@@ -471,7 +471,7 @@ static void test_session_response_matches_its_mapping_only() {
 
   auto const event = next_event(500);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(second, event.mapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(second, event.mapped.handle);
 
   // the first one is still being requested
   TEST_ASSERT_EQUAL_size_t(0, send_due(500));
@@ -479,7 +479,7 @@ static void test_session_response_matches_its_mapping_only() {
   TEST_ASSERT_EQUAL_size_t(1, send_due(3000));
 
   respond(first, 3500, SUCCESS, 3600);
-  TEST_ASSERT_EQUAL_UINT64(first, next_event(3500).mapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(first, next_event(3500).mapped.handle);
   end();
 }
 
@@ -563,7 +563,7 @@ static void test_session_server_reset_unmaps_active_mapping() {
   // first the application learns the address is gone, then it's requested again
   auto event = next_event(2000);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.unmapped.handle);
 
   event = next_event(2000);
   TEST_ASSERT_EQUAL(PCP_EVENT_SEND, event.type);
@@ -696,7 +696,7 @@ static void test_session_announce_reset_unmaps_then_waits() {
   // the application learns straight away, the request waits for the delay
   auto const event = next_event(1000);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
-  TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.unmapped.handle);
   TEST_ASSERT_EQUAL_size_t(0, send_due(1000));
   TEST_ASSERT_EQUAL_UINT64(3500, deadline);
 
@@ -918,13 +918,13 @@ static void test_session_handles_unique() {
   begin(100);
   auto const first = map();
   auto const second = map();
-  TEST_ASSERT_NOT_EQUAL_UINT64(0, first);
-  TEST_ASSERT_NOT_EQUAL_UINT64(first, second);
+  TEST_ASSERT_NOT_EQUAL_UINT16(0, first);
+  TEST_ASSERT_NOT_EQUAL_UINT16(first, second);
 
   // not even reused once a mapping is freed
   pcp_session_release(session, second);
   TEST_ASSERT_EQUAL_size_t(1, send_due(0));
-  TEST_ASSERT_NOT_EQUAL_UINT64(second, map());
+  TEST_ASSERT_NOT_EQUAL_UINT16(second, map());
   end();
 }
 

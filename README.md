@@ -76,6 +76,14 @@ while (running) {
 pcp_session_end(session);
 ```
 
+### Threading
+
+The library has no locks and assumes it's called as though it were
+single-threaded. A session can be used from any thread, but the application has
+to make sure no two calls on the same session run at the same time, including
+calls made from the allocator or RNG callbacks. Separate sessions share no
+state and can be used from different threads freely.
+
 `example/` has a complete client using a UDP socket and `select`, including
 releasing its mapping on Ctrl-C.
 

@@ -5,6 +5,10 @@
 
 #include "ip.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief A point in time in milliseconds
  *
@@ -30,7 +34,7 @@ typedef struct pcp_allocator {
 } pcp_allocator_t;
 
 typedef struct pcp_rng {
-  bool (*fill)(void *ctx, size_t size, uint8_t data[size]);
+  bool (*fill)(void *ctx, size_t size, uint8_t data[]);
   void *ctx;
 } pcp_rng_t;
 
@@ -106,8 +110,8 @@ typedef struct pcp_option {
   };
 } pcp_option_t;
 
-typedef uint64_t pcp_handle_t;
-typedef typeof(errno) errno_t;
+typedef uint16_t pcp_handle_t;
+typedef int errno_t;
 
 typedef struct pcp_handle_or_error {
   bool has_value;
@@ -133,13 +137,12 @@ typedef struct pcp_handle_or_error {
  * @returns The handle, or an error (EMSGSIZE if the options don't fit in a
  *          packet)
  */
-pcp_handle_or_error_t
-pcp_session_map_request(pcp_session_t *session,
-                        pcp_time_s_t lifetime,
-                        pcp_protocol_t protocol,
-                        port_t port,
-                        size_t count,
-                        pcp_option_t const options[count]);
+pcp_handle_or_error_t pcp_session_map_request(pcp_session_t *session,
+                                              pcp_time_s_t lifetime,
+                                              pcp_protocol_t protocol,
+                                              port_t port,
+                                              size_t count,
+                                              pcp_option_t const options[]);
 
 /**
  * @brief Allocate a new peer request
@@ -158,14 +161,13 @@ pcp_session_map_request(pcp_session_t *session,
  * @returns The handle, or an error (EMSGSIZE if the options don't fit in a
  *          packet)
  */
-pcp_handle_or_error_t
-pcp_session_peer_request(pcp_session_t *session,
-                         pcp_time_s_t lifetime,
-                         pcp_protocol_t protocol,
-                         port_t port,
-                         socket_address_t peer,
-                         size_t count,
-                         pcp_option_t const options[count]);
+pcp_handle_or_error_t pcp_session_peer_request(pcp_session_t *session,
+                                               pcp_time_s_t lifetime,
+                                               pcp_protocol_t protocol,
+                                               port_t port,
+                                               socket_address_t peer,
+                                               size_t count,
+                                               pcp_option_t const options[]);
 
 /**
  * @brief Release a mapping the application no longer needs
@@ -278,4 +280,8 @@ pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now);
 void pcp_session_on_datagram(pcp_session_t *session,
                              pcp_time_ms_t now,
                              size_t size,
-                             uint8_t const data[size]);
+                             uint8_t const data[]);
+
+#ifdef __cplusplus
+}
+#endif

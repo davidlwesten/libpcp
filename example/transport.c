@@ -128,16 +128,16 @@ void transport_loop(pcp_session_t *session, bool until_idle) {
         char external[SOCKET_ADDRESS_STRING_LENGTH];
         socket_address_to_string(sizeof(external), external,
                                  &event.mapped.external);
-        printf("Mapping %" PRIu64 " is reachable at %s\n", event.mapped.handle,
+        printf("Mapping %" PRIu16 " is reachable at %s\n", event.mapped.handle,
                external);
         break;
       }
       case PCP_EVENT_UNMAPPED:
-        printf("Mapping %" PRIu64 " lost its external address\n",
+        printf("Mapping %" PRIu16 " lost its external address\n",
                event.unmapped.handle);
         break;
       case PCP_EVENT_FAILED:
-        printf("Mapping %" PRIu64 " failed with result %d\n",
+        printf("Mapping %" PRIu16 " failed with result %d\n",
                event.failed.handle, event.failed.result);
         break;
       case PCP_EVENT_TIMEOUT:

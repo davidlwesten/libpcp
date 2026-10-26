@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct in_addr;
 struct in6_addr;
 struct sockaddr_in;
@@ -60,8 +64,7 @@ static constexpr size_t IP_ADDRESS_STRING_LENGTH = 56;
  *
  * @returns The length of the text, or 0 if `dst` is too small
  */
-size_t
-ip_address_to_string(size_t size, char dst[size], const ip_address_t *src);
+size_t ip_address_to_string(size_t size, char dst[], const ip_address_t *src);
 
 /**
  * @brief Test whether IP is v4 or v6
@@ -129,9 +132,8 @@ static constexpr size_t SOCKET_ADDRESS_STRING_LENGTH = 56;
  *
  * @returns The length of the text, or 0 if `dst` is too small
  */
-size_t socket_address_to_string(size_t size,
-                                char dst[size],
-                                const socket_address_t *src);
+size_t
+socket_address_to_string(size_t size, char dst[], const socket_address_t *src);
 
 /**
  * @brief Compare two socket addresses like memcmp
@@ -142,3 +144,7 @@ size_t socket_address_to_string(size_t size,
  */
 int socket_address_cmp(socket_address_t const *lhs,
                        socket_address_t const *rhs);
+
+#ifdef __cplusplus
+}
+#endif

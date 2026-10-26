@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
 
   // delete the mapping instead of leaving it to expire. A second Ctrl-C skips
   // waiting for that.
-  printf("Releasing mapping %" PRIu64 ", interrupt again to quit right away\n",
+  printf("Releasing mapping %" PRIu16 ", interrupt again to quit right away\n",
          handle.value);
   pcp_session_release(session, handle.value);
   transport_loop(session, true);

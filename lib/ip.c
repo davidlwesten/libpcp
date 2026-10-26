@@ -111,8 +111,7 @@ ip_address_to_string_v6(size_t size, char dst[size], const ip_address_t *src) {
   return (struct size_or_error){.has_value = true, .value = strlen(dst)};
 }
 
-size_t
-ip_address_to_string(size_t size, char dst[size], const ip_address_t *src) {
+size_t ip_address_to_string(size_t size, char dst[], const ip_address_t *src) {
   assert(src);
 
   struct size_or_error result;
@@ -280,7 +279,7 @@ socket_address_to_string_v6(size_t size,
 }
 
 size_t socket_address_to_string(size_t size,
-                                char dst[size],
+                                char dst[],
                                 const socket_address_t *address) {
 
   auto const result = ip_address_is_ipv4(&address->ip)
