@@ -26,6 +26,8 @@ typedef struct pcp_mapping_state {
     LOST,    // was ACTIVE, PCP_EVENT_UNMAPPED is yet to be emitted
     REFUSED, // refused, PCP_EVENT_FAILED is yet to be emitted
     FAILED,
+    RELEASING, // released by the application, asking the server to delete it
+    RELEASED,  // released by the application, for the session to free
   } type;
   union {
     struct {
@@ -44,11 +46,15 @@ typedef struct pcp_mapping_state {
     struct {
       pcp_result_t result;
     } refused;
+    struct {
+      pcp_schedule_t schedule;
+    } releasing;
   };
 } pcp_mapping_state_t;
 
 typedef struct pcp_mapping {
   struct pcp_mapping *next;
+  pcp_handle_t handle;
   pcp_request_t request;
   pcp_nonce_t nonce;
   pcp_mapping_state_t state;
@@ -62,6 +68,7 @@ typedef struct pcp_mapping {
  * @param[out] mapping Room for the mapping and `count` options
  */
 void pcp_mapping_init(pcp_mapping_t *mapping,
+                      pcp_handle_t handle,
                       pcp_request_t request,
                       pcp_nonce_t nonce,
                       size_t count,
@@ -82,6 +89,14 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
  * @param[in] not_before When to send the request, 0 for straight away
  */
 void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before);
+
+/**
+ * @brief Give the mapping up on behalf of the application
+ *
+ * No further events refer to the mapping. It's RELEASED once nothing is left to
+ * do for it, possibly straight away.
+ */
+void pcp_mapping_release(pcp_mapping_t *mapping);
 
 bool pcp_mapping_update(pcp_mapping_t *mapping,
                         pcp_time_ms_t now,

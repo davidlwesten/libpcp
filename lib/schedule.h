@@ -16,6 +16,15 @@ static constexpr pcp_backoff_t PCP_BACKOFF_DEFAULT = {
     .mrc = 0,
 };
 
+// deleting a mapping is worth a few attempts, if they all go unanswered the
+// mapping simply expires at the end of its lease
+static constexpr pcp_backoff_t PCP_BACKOFF_RELEASE = {
+    .irt = 3'000,
+    .mrt = 1'024'000,
+    .mrd = 0,
+    .mrc = 3,
+};
+
 typedef struct pcp_schedule {
   enum {
     PCP_SCHEDULE_BACKOFF, // retransmissions of a request, RFC 6887 §8.1.1

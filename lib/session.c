@@ -31,6 +31,7 @@ pcp_session_t *pcp_session_begin(pcp_config_t config) {
         .config = config,
         .epoch = {0},
         .mappings = nullptr,
+        .handles = 0,
     };
   }
 
@@ -51,6 +52,20 @@ pcp_session_deadline(pcp_session_t const *session) {
   return earliest;
 }
 
+// frees the mappings the application released that have nothing left to do
+static void pcp_session_free_released(pcp_session_t *session) {
+  auto link = &session->mappings;
+  while (*link) {
+    auto const mapping = *link;
+    if (mapping->state.type == RELEASED) {
+      *link = mapping->next;
+      FREE(session->config.allocator, mapping);
+    } else {
+      link = &mapping->next;
+    }
+  }
+}
+
 pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now) {
   assert(session);
 
@@ -60,6 +75,9 @@ pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now) {
       return event;
     }
   }
+
+  // released mappings are done for good once every mapping is up to date
+  pcp_session_free_released(session);
 
   // every mapping is up to date with `now`, so all deadlines lie in the future
   return (pcp_event_t){
@@ -83,8 +101,8 @@ void pcp_session_end(pcp_session_t *ctx) {
   FREE(ctx->config.allocator, ctx);
 }
 
-static pcp_handle_t pcp_session_add_mapping(pcp_session_t *session,
-                                            pcp_mapping_t *mapping) {
+static void pcp_session_add_mapping(pcp_session_t *session,
+                                    pcp_mapping_t *mapping) {
   assert(session);
   assert(mapping);
   assert(mapping->next == nullptr);
@@ -99,8 +117,6 @@ static pcp_handle_t pcp_session_add_mapping(pcp_session_t *session,
 
     iter->next = mapping;
   }
-
-  return (pcp_handle_t)mapping;
 }
 
 static pcp_handle_or_error_t
@@ -129,11 +145,14 @@ pcp_session_request(pcp_session_t *session,
     };
   }
 
-  pcp_mapping_init(mapping, request, nonce, count, options);
+  // starting from 1, so a zero-initialised handle never refers to a mapping
+  auto const handle = ++session->handles;
+  pcp_mapping_init(mapping, handle, request, nonce, count, options);
+  pcp_session_add_mapping(session, mapping);
 
   return (pcp_handle_or_error_t){
       .has_value = true,
-      .value = pcp_session_add_mapping(session, mapping),
+      .value = handle,
   };
 }
 
@@ -194,6 +213,38 @@ pcp_session_peer_request(pcp_session_t *session,
               },
       },
       count, options);
+}
+
+// the mapping `handle` refers to, unless the application already released it
+static pcp_mapping_t *pcp_session_find(pcp_session_t const *session,
+                                       pcp_handle_t handle) {
+  for (auto iter = session->mappings; iter; iter = iter->next) {
+    if (iter->handle != handle) {
+      continue;
+    }
+
+    switch (iter->state.type) {
+    case RELEASING:
+    case RELEASED:
+      return nullptr;
+    default:
+      return iter;
+    }
+  }
+
+  return nullptr;
+}
+
+void pcp_session_release(pcp_session_t *session, pcp_handle_t handle) {
+  assert(session);
+
+  auto const mapping = pcp_session_find(session, handle);
+  if (!mapping) {
+    return;
+  }
+
+  // freed by pcp_session_poll once it's RELEASED, which may take a few requests
+  pcp_mapping_release(mapping);
 }
 
 void pcp_session_on_datagram(pcp_session_t *session,

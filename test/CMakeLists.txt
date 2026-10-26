@@ -106,6 +106,19 @@ set(TEST_CASES
   test_session_announce_reset_unmaps_then_waits
   test_session_announce_reset_delays_pending_mapping
   test_session_announce_error_still_resets
+  test_session_release_deletes_active_mapping
+  test_session_release_gives_up_without_response
+  test_session_release_error_not_retried
+  test_session_release_unsent_request_freed
+  test_session_release_sent_request_deleted
+  test_session_release_drops_owed_event
+  test_session_release_peer_not_deleted
+  test_session_release_failed_mapping
+  test_session_release_ends_on_server_reset
+  test_session_release_keeps_other_mappings
+  test_session_handles_unique
+  test_session_release_ignores_unknown_handle
+  test_session_release_twice_ignored
   test_session_ignores_malformed_datagrams
   test_wire_map_request
   test_wire_map_request_without_suggestion

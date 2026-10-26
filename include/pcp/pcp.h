@@ -54,6 +54,14 @@ typedef struct pcp_config {
 typedef struct pcp_session pcp_session_t;
 
 pcp_session_t *pcp_session_begin(pcp_config_t config);
+
+/**
+ * @brief Free the session and its mappings
+ *
+ * The server isn't told, so its mappings live on until their leases expire. To
+ * delete them first, release every mapping (see pcp_session_release) and poll
+ * until PCP_EVENT_TIMEOUT comes without a deadline.
+ */
 void pcp_session_end(pcp_session_t *session);
 
 typedef enum pcp_protocol : uint8_t {
@@ -85,7 +93,9 @@ typedef struct pcp_option {
   };
 } pcp_option_t;
 
-typedef uintptr_t pcp_handle_t;
+/// Identifies a mapping within its session. Never reused, so a handle that's no
+/// longer valid can't refer to a different mapping
+typedef uint64_t pcp_handle_t;
 typedef typeof(errno) errno_t;
 
 typedef struct pcp_handle_or_error {
@@ -143,6 +153,22 @@ pcp_session_peer_request(pcp_session_t *session,
                          socket_address_t peer,
                          size_t count,
                          pcp_option_t const options[count]);
+
+/**
+ * @brief Release a mapping the application no longer needs
+ *
+ * For a MAP mapping the server may still hold, the session asks the server to
+ * delete it, so the application should poll the session afterwards. PEER
+ * mappings can't be deleted and expire at the end of their lease (RFC 6887
+ * §12, §15).
+ *
+ * The handle is invalid once this returns, and no further events refer to it.
+ *
+ * @param[in] session The session that owns the mapping
+ * @param[in] handle  The mapping to release, nothing happens if it was already
+ *                    released
+ */
+void pcp_session_release(pcp_session_t *session, pcp_handle_t handle);
 
 constexpr size_t PCP_PACKET_MAX_SIZE = 1100;
 

@@ -105,10 +105,12 @@ void transport_close() {
   }
 }
 
-void transport_loop(pcp_session_t *session) {
+void transport_loop(pcp_session_t *session, bool until_idle) {
   // outgoing packets live in the session's buffer, see main()
   uint8_t incoming[PCP_PACKET_MAX_SIZE];
 
+  // each loop runs until its own signal
+  running = 1;
   while (running) {
     // poll until the session tells us how long to wait
     pcp_optional_time_ms_t deadline = {0};
@@ -127,16 +129,16 @@ void transport_loop(pcp_session_t *session) {
       case PCP_EVENT_MAPPED: {
         char external[SOCKET_ADDRESS_STRING_LENGTH];
         socket_address_ntop(sizeof(external), external, &event.mapped.external);
-        printf("Mapping %" PRIxPTR " is reachable at %s\n", event.mapped.handle,
+        printf("Mapping %" PRIu64 " is reachable at %s\n", event.mapped.handle,
                external);
         break;
       }
       case PCP_EVENT_UNMAPPED:
-        printf("Mapping %" PRIxPTR " lost its external address\n",
+        printf("Mapping %" PRIu64 " lost its external address\n",
                event.unmapped.handle);
         break;
       case PCP_EVENT_FAILED:
-        printf("Mapping %" PRIxPTR " failed with result %d\n",
+        printf("Mapping %" PRIu64 " failed with result %d\n",
                event.failed.handle, event.failed.result);
         break;
       case PCP_EVENT_TIMEOUT:
@@ -144,6 +146,10 @@ void transport_loop(pcp_session_t *session) {
         polling = false;
         break;
       }
+    }
+
+    if (until_idle && !deadline.has_value) {
+      return;
     }
 
     fd_set readable;

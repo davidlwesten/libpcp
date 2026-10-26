@@ -61,11 +61,32 @@ static void pcp_mapping_enter_refused(pcp_mapping_t *mapping,
 }
 
 static void pcp_mapping_enter_failed(pcp_mapping_t *mapping) {
-  assert(mapping->state.type == PENDING || mapping->state.type == REFUSED);
+  assert(mapping->state.type == REFUSED);
   mapping->state = (pcp_mapping_state_t){.type = FAILED};
 }
 
+static void pcp_mapping_enter_releasing(pcp_mapping_t *mapping) {
+  // RFC 6887 §15: only MAP mappings can be deleted, by requesting them with a
+  // lifetime of 0 and no suggested external address
+  assert(mapping->request.type == MAP);
+  assert(mapping->state.type == PENDING || mapping->state.type == CONFIRMED ||
+         mapping->state.type == ACTIVE);
+
+  mapping->request.lifetime = 0;
+  mapping->request.map.external = (socket_address_t){0};
+
+  mapping->state = (pcp_mapping_state_t){.type = RELEASING};
+  pcp_schedule_backoff(&mapping->state.releasing.schedule, PCP_BACKOFF_RELEASE,
+                       0);
+}
+
+static void pcp_mapping_enter_released(pcp_mapping_t *mapping) {
+  assert(mapping->state.type != RELEASED);
+  mapping->state = (pcp_mapping_state_t){.type = RELEASED};
+}
+
 void pcp_mapping_init(pcp_mapping_t *mapping,
+                      pcp_handle_t handle,
                       pcp_request_t request,
                       pcp_nonce_t nonce,
                       size_t count,
@@ -75,6 +96,7 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
 
   *mapping = (pcp_mapping_t){
       .next = nullptr,
+      .handle = handle,
       .request = request,
       .nonce = nonce,
       .count = count,
@@ -198,20 +220,29 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
   assert(response);
   assert(response->type == MAP || response->type == PEER);
 
-  // only PENDING and ACTIVE mappings send requests, so only they can be
-  // waiting for a response
+  // only PENDING, ACTIVE and RELEASING mappings send requests, so only they
+  // can be waiting for a response
   switch (mapping->state.type) {
   case PENDING:
   case ACTIVE:
+  case RELEASING:
     break;
   case CONFIRMED:
   case LOST:
   case REFUSED:
   case FAILED:
+  case RELEASED:
     return;
   }
 
   if (!pcp_mapping_matches(mapping, response)) {
+    return;
+  }
+
+  // whatever the result there's nothing more to do: after an error the server
+  // asks not to repeat the request, so the lease just runs out
+  if (mapping->state.type == RELEASING) {
+    pcp_mapping_enter_released(mapping);
     return;
   }
 
@@ -261,9 +292,7 @@ static bool pcp_mapping_update_pending(pcp_mapping_t *mapping,
   case PCP_SCHEDULE_DUE:
     return pcp_mapping_send(mapping, schedule, now, config, out);
   case PCP_SCHEDULE_EXHAUSTED:
-    // only bounded schedules run out, i.e. deleting a mapping the application
-    // already released, so there's nobody to notify
-    pcp_mapping_enter_failed(mapping);
+    assert(false && "PENDING mappings retry without bound");
     return false;
   }
 }
@@ -278,7 +307,7 @@ static bool pcp_mapping_update_confirmed(pcp_mapping_t *mapping,
       .type = PCP_EVENT_MAPPED,
       .mapped =
           {
-              .handle = (pcp_handle_t)mapping,
+              .handle = mapping->handle,
               .external = lease.external,
           },
   };
@@ -293,7 +322,7 @@ static bool pcp_mapping_update_lost(pcp_mapping_t *mapping, pcp_event_t *out) {
       .type = PCP_EVENT_UNMAPPED,
       .unmapped =
           {
-              .handle = (pcp_handle_t)mapping,
+              .handle = mapping->handle,
           },
   };
   return true;
@@ -326,11 +355,65 @@ static bool pcp_mapping_update_refused(pcp_mapping_t *mapping,
       .type = PCP_EVENT_FAILED,
       .failed =
           {
-              .handle = (pcp_handle_t)mapping,
+              .handle = mapping->handle,
               .result = result,
           },
   };
   return true;
+}
+
+static bool pcp_mapping_update_releasing(pcp_mapping_t *mapping,
+                                         pcp_time_ms_t now,
+                                         pcp_config_t const *config,
+                                         pcp_event_t *out) {
+  auto const schedule = &mapping->state.releasing.schedule;
+
+  switch (pcp_schedule_poll(schedule, now)) {
+  case PCP_SCHEDULE_WAIT:
+    return false;
+  case PCP_SCHEDULE_DUE:
+    return pcp_mapping_send(mapping, schedule, now, config, out);
+  case PCP_SCHEDULE_EXHAUSTED:
+    // the server never answered, so the mapping expires at the end of its lease
+    pcp_mapping_enter_released(mapping);
+    return false;
+  }
+}
+
+void pcp_mapping_release(pcp_mapping_t *mapping) {
+  assert(mapping);
+  assert(mapping->state.type != RELEASING && mapping->state.type != RELEASED);
+
+  // RFC 6887 §12: PEER mappings can't be deleted, only left to expire
+  if (mapping->request.type == PEER) {
+    pcp_mapping_enter_released(mapping);
+    return;
+  }
+
+  switch (mapping->state.type) {
+  case PENDING:
+    // the server may have granted a request even if its response hasn't
+    // arrived, but not one that was never sent
+    if (mapping->state.pending.schedule.count > 0) {
+      pcp_mapping_enter_releasing(mapping);
+    } else {
+      pcp_mapping_enter_released(mapping);
+    }
+    break;
+  case CONFIRMED:
+  case ACTIVE:
+    pcp_mapping_enter_releasing(mapping);
+    break;
+  case LOST:
+  case REFUSED:
+  case FAILED:
+    // nothing the server would still hold
+    pcp_mapping_enter_released(mapping);
+    break;
+  case RELEASING:
+  case RELEASED:
+    unreachable();
+  }
 }
 
 void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before) {
@@ -350,9 +433,14 @@ void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before) {
     // request follows once it's PENDING again
     pcp_mapping_enter_lost(mapping, not_before);
     break;
+  case RELEASING:
+    // the server already forgot what we're asking it to delete
+    pcp_mapping_enter_released(mapping);
+    break;
   case LOST:
   case REFUSED:
   case FAILED:
+  case RELEASED:
     break;
   }
 }
@@ -376,7 +464,10 @@ bool pcp_mapping_update(pcp_mapping_t *mapping,
     return pcp_mapping_update_lost(mapping, out);
   case REFUSED:
     return pcp_mapping_update_refused(mapping, out);
+  case RELEASING:
+    return pcp_mapping_update_releasing(mapping, now, config, out);
   case FAILED:
+  case RELEASED:
     return false;
   }
 }
@@ -395,6 +486,11 @@ pcp_optional_time_ms_t pcp_mapping_deadline(pcp_mapping_t const *mapping) {
         .has_value = true,
         .value = pcp_schedule_deadline(&mapping->state.active.schedule),
     };
+  case RELEASING:
+    return (pcp_optional_time_ms_t){
+        .has_value = true,
+        .value = pcp_schedule_deadline(&mapping->state.releasing.schedule),
+    };
   case CONFIRMED:
   case LOST:
   case REFUSED:
@@ -402,6 +498,8 @@ pcp_optional_time_ms_t pcp_mapping_deadline(pcp_mapping_t const *mapping) {
     // pcp_session_poll never leaves them behind, this is just for safety
     return (pcp_optional_time_ms_t){.has_value = true, .value = 0};
   case FAILED:
+  case RELEASED:
+    // pcp_session_poll frees RELEASED mappings before asking
     return (pcp_optional_time_ms_t){.has_value = false, .value = 0};
   }
 }

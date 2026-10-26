@@ -1,6 +1,7 @@
 #include <pcp/pcp.h>
 
 #include <assert.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,7 +58,14 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  transport_loop(session);
+  transport_loop(session, false);
+
+  // ask the server to delete the mapping rather than leaving it to expire. That
+  // takes a few retransmissions at most, but don't make the user wait for them
+  printf("Releasing mapping %" PRIu64 ", interrupt again to quit right away\n",
+         handle.value);
+  pcp_session_release(session, handle.value);
+  transport_loop(session, true);
 
   pcp_session_end(session);
   transport_close();

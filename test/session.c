@@ -162,6 +162,18 @@ static void write_uint32(uint8_t dst[4], uint32_t value) {
   dst[3] = (uint8_t)value;
 }
 
+// the mapping behind `handle`, to answer its request as the server would
+static pcp_mapping_t const *mapping_of(pcp_handle_t handle) {
+  for (auto iter = session->mappings; iter; iter = iter->next) {
+    if (iter->handle == handle) {
+      return iter;
+    }
+  }
+
+  TEST_FAIL_MESSAGE("no mapping with this handle");
+  return nullptr;
+}
+
 // delivers a well-formed response with the given epoch time. With a mapping it
 // answers that mapping's request (with `peer` replacing its remote peer if
 // given), otherwise its body doesn't match any mapping
@@ -211,8 +223,8 @@ static void respond(pcp_handle_t handle,
                     pcp_time_ms_t now,
                     pcp_result_t result,
                     pcp_time_s_t lifetime) {
-  deliver(now, (pcp_time_s_t)(1'000 + now / 1'000),
-          (pcp_mapping_t const *)handle, result, lifetime, nullptr);
+  deliver(now, (pcp_time_s_t)(1'000 + now / 1'000), mapping_of(handle), result,
+          lifetime, nullptr);
 }
 
 // polls the event the application should get next
@@ -477,12 +489,10 @@ static void test_session_peer_response_must_match_remote_peer() {
 
   // same nonce, protocol and port, but a different remote peer
   socket_address_t const other = {.ip = remote.ip, .port = 444};
-  deliver(500, 1'000, (pcp_mapping_t const *)handle.value, SUCCESS, 3600,
-          &other);
+  deliver(500, 1'000, mapping_of(handle.value), SUCCESS, 3600, &other);
   TEST_ASSERT_EQUAL_size_t(0, send_due(500));
 
-  deliver(600, 1'000, (pcp_mapping_t const *)handle.value, SUCCESS, 3600,
-          nullptr);
+  deliver(600, 1'000, mapping_of(handle.value), SUCCESS, 3600, nullptr);
   TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, next_event(600).type);
   end();
 }
@@ -608,7 +618,7 @@ static void test_session_response_revealing_reset_not_applied() {
 
   // matches the request, but its epoch says the server lost its state, so it
   // might as well be stale
-  deliver(1'000, 3, (pcp_mapping_t const *)handle, SUCCESS, 3600, nullptr);
+  deliver(1'000, 3, mapping_of(handle), SUCCESS, 3600, nullptr);
   TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
   end();
 }
@@ -683,6 +693,204 @@ static void test_session_announce_error_still_resets() {
   end();
 }
 
+// checks the session has nothing left to do, e.g. once every mapping is freed
+static void assert_idle(pcp_time_ms_t now) {
+  auto const event = next_event(now);
+  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, event.type);
+  TEST_ASSERT_FALSE(event.timeout.deadline.has_value);
+}
+
+// checks the request the session last asked the application to send deletes
+// its mapping
+static void assert_sent_delete() {
+  uint32_t const lifetime = (uint32_t)send_buffer[4] << 24 |
+                            (uint32_t)send_buffer[5] << 16 |
+                            (uint32_t)send_buffer[6] << 8 | send_buffer[7];
+  TEST_ASSERT_EQUAL_UINT32(0, lifetime);
+
+  // RFC 6887 §15: without a suggested external address
+  auto const suggestion = suggested();
+  uint8_t const zero[16] = {0};
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(zero, suggestion.ip.addr, 16);
+  TEST_ASSERT_EQUAL_UINT16(0, suggestion.port);
+}
+
+static void test_session_release_deletes_active_mapping() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  assert_sent_delete();
+
+  respond(handle, 1'500, SUCCESS, 0);
+  assert_idle(1'500);
+  end();
+}
+
+static void test_session_release_gives_up_without_response() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  // three attempts, then the mapping is left to expire
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+  TEST_ASSERT_EQUAL_UINT64(4'000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(4'000));
+  TEST_ASSERT_EQUAL_UINT64(10'000, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(10'000));
+  TEST_ASSERT_EQUAL_UINT64(22'000, deadline);
+  assert_idle(22'000);
+  end();
+}
+
+static void test_session_release_error_not_retried() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+
+  // the server asks not to repeat the request for a while, so the lease is
+  // left to run out
+  respond(handle, 1'500, NO_RESOURCES, 30);
+  assert_idle(1'500);
+  end();
+}
+
+static void test_session_release_unsent_request_freed() {
+  begin(100);
+  auto const handle = map();
+
+  // the server never heard of it
+  pcp_session_release(session, handle);
+  assert_idle(0);
+  end();
+}
+
+static void test_session_release_sent_request_deleted() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+
+  // the server may have granted it, even without a response yet
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(500));
+  assert_sent_delete();
+  end();
+}
+
+static void test_session_release_drops_owed_event() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  respond(handle, 500, SUCCESS, 3600);
+
+  // granted, but released before the application learned about it
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL(PCP_EVENT_SEND, next_event(500).type);
+  assert_sent_delete();
+  end();
+}
+
+static void test_session_release_peer_not_deleted() {
+  begin(100);
+  socket_address_t const remote = {.ip =
+                                       ip_address_from_octets(198, 51, 100, 1),
+                                   .port = 443};
+  auto const handle =
+      pcp_session_peer_request(session, 3600, TCP, 1234, remote, 0, nullptr);
+  TEST_ASSERT_TRUE(handle.has_value);
+  establish(handle.value, 0);
+
+  // RFC 6887 §12: PEER mappings can only expire
+  pcp_session_release(session, handle.value);
+  assert_idle(1'000);
+  end();
+}
+
+static void test_session_release_failed_mapping() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  respond(handle, 500, NOT_AUTHORIZED, 0);
+  TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, next_event(500).type);
+
+  pcp_session_release(session, handle);
+  assert_idle(500);
+  end();
+}
+
+static void test_session_release_ends_on_server_reset() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(1'000));
+
+  // the server forgot the mapping by itself
+  receive_response(2'000, 3);
+  assert_idle(2'000);
+  end();
+}
+
+static void test_session_release_keeps_other_mappings() {
+  begin(100);
+  map();
+  auto const handle = map();
+  map();
+
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL_size_t(2, send_due(0));
+  end();
+}
+
+static void test_session_handles_unique() {
+  begin(100);
+  auto const first = map();
+  auto const second = map();
+  TEST_ASSERT_NOT_EQUAL_UINT64(0, first);
+  TEST_ASSERT_NOT_EQUAL_UINT64(first, second);
+
+  // not even reused once a mapping is freed
+  pcp_session_release(session, second);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  TEST_ASSERT_NOT_EQUAL_UINT64(second, map());
+  end();
+}
+
+static void test_session_release_ignores_unknown_handle() {
+  begin(100);
+  map();
+
+  pcp_session_release(session, 0);
+  pcp_session_release(session, 1'000);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  end();
+}
+
+static void test_session_release_twice_ignored() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  // while the delete is still being requested
+  pcp_session_release(session, handle);
+  pcp_session_release(session, handle);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(500));
+  respond(handle, 500, SUCCESS, 0);
+
+  // and once the mapping is freed
+  assert_idle(500);
+  pcp_session_release(session, handle);
+  assert_idle(500);
+  end();
+}
+
 static void test_session_ignores_malformed_datagrams() {
   begin(100);
   map();
@@ -747,5 +955,18 @@ void session_tests() {
   RUN_TEST(test_session_announce_reset_unmaps_then_waits);
   RUN_TEST(test_session_announce_reset_delays_pending_mapping);
   RUN_TEST(test_session_announce_error_still_resets);
+  RUN_TEST(test_session_release_deletes_active_mapping);
+  RUN_TEST(test_session_release_gives_up_without_response);
+  RUN_TEST(test_session_release_error_not_retried);
+  RUN_TEST(test_session_release_unsent_request_freed);
+  RUN_TEST(test_session_release_sent_request_deleted);
+  RUN_TEST(test_session_release_drops_owed_event);
+  RUN_TEST(test_session_release_peer_not_deleted);
+  RUN_TEST(test_session_release_failed_mapping);
+  RUN_TEST(test_session_release_ends_on_server_reset);
+  RUN_TEST(test_session_release_keeps_other_mappings);
+  RUN_TEST(test_session_handles_unique);
+  RUN_TEST(test_session_release_ignores_unknown_handle);
+  RUN_TEST(test_session_release_twice_ignored);
   RUN_TEST(test_session_ignores_malformed_datagrams);
 }
