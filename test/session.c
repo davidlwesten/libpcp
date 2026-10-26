@@ -232,6 +232,13 @@ static pcp_event_t next_event(pcp_time_ms_t now) {
   return pcp_session_poll(session, now);
 }
 
+// checks the session has nothing left to do, e.g. once every mapping is freed
+static void assert_idle(pcp_time_ms_t now) {
+  auto const event = next_event(now);
+  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, event.type);
+  TEST_ASSERT_FALSE(event.timeout.deadline.has_value);
+}
+
 static void test_session_server_reset_requests_again() {
   begin(100);
   map();
@@ -433,10 +440,9 @@ static void test_session_permanent_error_fails() {
   TEST_ASSERT_EQUAL_UINT64(handle, event.failed.handle);
   TEST_ASSERT_EQUAL(NOT_AUTHORIZED, event.failed.result);
 
-  // nothing left to do for it, ever
-  event = next_event(500);
-  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, event.type);
-  TEST_ASSERT_FALSE(event.timeout.deadline.has_value);
+  // nothing left to do for it, ever, so it's freed without being released
+  assert_idle(500);
+  TEST_ASSERT_NULL(session->mappings);
   end();
 }
 
@@ -610,6 +616,40 @@ static void test_session_server_reset_before_mapped_event() {
   end();
 }
 
+static void test_session_server_reset_recovered_before_poll() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  // the server restarts and grants the same address again before the
+  // application polls, so as far as it's concerned nothing changed
+  receive_response(1'000, 1'001);
+  receive_response(2'000, 3);
+  deliver(3'000, 4, mapping_of(handle), SUCCESS, 3600, nullptr);
+
+  TEST_ASSERT_EQUAL_size_t(0, send_due(3'000));
+  TEST_ASSERT_EQUAL_UINT64(3'000 + first_renewal, deadline);
+  end();
+}
+
+static void test_session_server_reset_new_address_before_poll() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  receive_response(1'000, 1'001);
+  receive_response(2'000, 3);
+  granted.port = 40000;
+  deliver(3'000, 4, mapping_of(handle), SUCCESS, 3600, nullptr);
+
+  // only the net change: the new address, without UNMAPPED before it
+  auto const event = next_event(3'000);
+  TEST_ASSERT_EQUAL(PCP_EVENT_MAPPED, event.type);
+  TEST_ASSERT_EQUAL_UINT16(40000, event.mapped.external.port);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(3'000));
+  end();
+}
+
 static void test_session_response_revealing_reset_not_applied() {
   begin(100);
   auto const handle = map();
@@ -691,13 +731,6 @@ static void test_session_announce_error_still_resets() {
   announce(1'000, 3, NO_RESOURCES);
   TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(1'000).type);
   end();
-}
-
-// checks the session has nothing left to do, e.g. once every mapping is freed
-static void assert_idle(pcp_time_ms_t now) {
-  auto const event = next_event(now);
-  TEST_ASSERT_EQUAL(PCP_EVENT_TIMEOUT, event.type);
-  TEST_ASSERT_FALSE(event.timeout.deadline.has_value);
 }
 
 // checks the request the session last asked the application to send deletes
@@ -819,6 +852,18 @@ static void test_session_release_failed_mapping() {
   respond(handle, 500, NOT_AUTHORIZED, 0);
   TEST_ASSERT_EQUAL(PCP_EVENT_FAILED, next_event(500).type);
 
+  pcp_session_release(session, handle);
+  assert_idle(500);
+  end();
+}
+
+static void test_session_release_before_failed_event() {
+  begin(100);
+  auto const handle = map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  respond(handle, 500, NOT_AUTHORIZED, 0);
+
+  // refused, but released before the application heard about it
   pcp_session_release(session, handle);
   assert_idle(500);
   end();
@@ -950,6 +995,8 @@ void session_tests() {
   RUN_TEST(test_session_server_reset_unmaps_once);
   RUN_TEST(test_session_server_reset_pending_mapping_not_unmapped);
   RUN_TEST(test_session_server_reset_before_mapped_event);
+  RUN_TEST(test_session_server_reset_recovered_before_poll);
+  RUN_TEST(test_session_server_reset_new_address_before_poll);
   RUN_TEST(test_session_response_revealing_reset_not_applied);
   RUN_TEST(test_session_announce_consistent_epoch_ignored);
   RUN_TEST(test_session_announce_reset_unmaps_then_waits);
@@ -963,6 +1010,7 @@ void session_tests() {
   RUN_TEST(test_session_release_drops_owed_event);
   RUN_TEST(test_session_release_peer_not_deleted);
   RUN_TEST(test_session_release_failed_mapping);
+  RUN_TEST(test_session_release_before_failed_event);
   RUN_TEST(test_session_release_ends_on_server_reset);
   RUN_TEST(test_session_release_keeps_other_mappings);
   RUN_TEST(test_session_handles_unique);

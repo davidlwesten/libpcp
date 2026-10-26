@@ -41,6 +41,7 @@ pcp_session_t *pcp_session_begin(pcp_config_t config) {
 static pcp_optional_time_ms_t
 pcp_session_deadline(pcp_session_t const *session) {
   pcp_optional_time_ms_t earliest = {.has_value = false, .value = 0};
+
   for (auto iter = session->mappings; iter; iter = iter->next) {
     auto const deadline = pcp_mapping_deadline(iter);
     if (deadline.has_value &&

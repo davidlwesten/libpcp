@@ -21,13 +21,10 @@ typedef struct pcp_mapping_lease {
 typedef struct pcp_mapping_state {
   enum {
     PENDING,
-    CONFIRMED, // granted, PCP_EVENT_MAPPED is yet to be emitted
     ACTIVE,
-    LOST,    // was ACTIVE, PCP_EVENT_UNMAPPED is yet to be emitted
-    REFUSED, // refused, PCP_EVENT_FAILED is yet to be emitted
-    FAILED,
+    FAILED,    // refused, PCP_EVENT_FAILED is yet to be emitted
     RELEASING, // released by the application, asking the server to delete it
-    RELEASED,  // released by the application, for the session to free
+    RELEASED,  // nothing left to do, for the session to free
   } type;
   union {
     struct {
@@ -35,17 +32,11 @@ typedef struct pcp_mapping_state {
     } pending;
     struct {
       pcp_mapping_lease_t lease;
-    } confirmed;
-    struct {
-      pcp_mapping_lease_t lease;
       pcp_schedule_t schedule; // renewals
     } active;
     struct {
-      pcp_time_ms_t not_before; // when to request the mapping again
-    } lost;
-    struct {
       pcp_result_t result;
-    } refused;
+    } failed;
     struct {
       pcp_schedule_t schedule;
     } releasing;
@@ -58,6 +49,10 @@ typedef struct pcp_mapping {
   pcp_request_t request;
   pcp_nonce_t nonce;
   pcp_mapping_state_t state;
+  // The external address from the last PCP_EVENT_MAPPED, until a
+  // PCP_EVENT_UNMAPPED follows. Only pcp_mapping_report uses it, to work out
+  // which event the application is owed next
+  optional_socket_address_t last_mapped;
   size_t count;
   pcp_option_t options[];
 } pcp_mapping_t;
@@ -98,6 +93,17 @@ void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before);
  */
 void pcp_mapping_release(pcp_mapping_t *mapping);
 
+/**
+ * @brief Bring the mapping up to date with `now`
+ *
+ * In this order: applies what time decided (e.g. an expired lease), then
+ * tells the application about any change it hasn't heard about, then sends a
+ * request that's due. Call it until it returns false.
+ *
+ * @param[out] out The event for the application, if any
+ *
+ * @returns Whether there was an event
+ */
 bool pcp_mapping_update(pcp_mapping_t *mapping,
                         pcp_time_ms_t now,
                         pcp_config_t const *config,

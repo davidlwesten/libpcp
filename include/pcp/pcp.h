@@ -166,7 +166,7 @@ pcp_session_peer_request(pcp_session_t *session,
  *
  * @param[in] session The session that owns the mapping
  * @param[in] handle  The mapping to release, nothing happens if it was already
- *                    released
+ *                    released or failed
  */
 void pcp_session_release(pcp_session_t *session, pcp_handle_t handle);
 
@@ -206,7 +206,8 @@ typedef struct pcp_event {
     /// requesting it, so PCP_EVENT_MAPPED follows once that succeeds
     PCP_EVENT_UNMAPPED,
     /// The server refused the mapping and the session gave up on it. This is
-    /// the last event for the handle
+    /// the last event for the handle, which is invalid afterwards (releasing
+    /// it does nothing)
     PCP_EVENT_FAILED,
     /// Nothing more to do before `timeout.deadline`, see pcp_session_poll
     PCP_EVENT_TIMEOUT,

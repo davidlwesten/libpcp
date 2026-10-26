@@ -101,6 +101,8 @@ set(TEST_CASES
   test_session_server_reset_unmaps_once
   test_session_server_reset_pending_mapping_not_unmapped
   test_session_server_reset_before_mapped_event
+  test_session_server_reset_recovered_before_poll
+  test_session_server_reset_new_address_before_poll
   test_session_response_revealing_reset_not_applied
   test_session_announce_consistent_epoch_ignored
   test_session_announce_reset_unmaps_then_waits
@@ -114,6 +116,7 @@ set(TEST_CASES
   test_session_release_drops_owed_event
   test_session_release_peer_not_deleted
   test_session_release_failed_mapping
+  test_session_release_before_failed_event
   test_session_release_ends_on_server_reset
   test_session_release_keeps_other_mappings
   test_session_handles_unique
