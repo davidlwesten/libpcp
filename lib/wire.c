@@ -10,6 +10,10 @@
 static constexpr size_t PCP_PACKET_HEADER_SIZE = 24;
 static constexpr size_t PCP_OPTION_HEADER_SIZE = 4;
 
+static constexpr size_t PCP_OPTION_SIZE[] = {
+    [THIRD_PARTY] = PCP_OPTION_HEADER_SIZE + 16,
+    [FILTER] = PCP_OPTION_HEADER_SIZE + 20};
+
 static constexpr size_t PCP_MESSAGE_SIZE[] = {
     [ANNOUNCE] = PCP_PACKET_HEADER_SIZE + 0,
     [MAP] = PCP_PACKET_HEADER_SIZE + 36,
@@ -93,26 +97,12 @@ static void pcp_packet_write_peer_request(view_t dst,
   pcp_packet_body_write_ip_address(dst, 40, &src->peer.peer.ip);
 }
 
-// length of the option data, not counting the 4-byte header
-static uint16_t pcp_option_length(pcp_option_t const *option) {
-  switch (option->type) {
-  case THIRD_PARTY:
-    return 16;
-  case FILTER:
-    return 20;
-  }
-}
-
 // Deletes (lifetime 0) can't carry FILTER. THIRD_PARTY has to stay though:
 // without it the server looks for a mapping on our own address, doesn't find
 // one and still answers SUCCESS.
 static bool pcp_option_included(pcp_request_t const *request,
                                 pcp_option_t const *option) {
   return option->type != FILTER || request->lifetime > 0;
-}
-
-static size_t pcp_option_size(pcp_option_t const *option) {
-  return PCP_OPTION_HEADER_SIZE + pcp_option_length(option);
 }
 
 size_t pcp_packet_request_size(pcp_request_t const *request,
@@ -123,38 +113,38 @@ size_t pcp_packet_request_size(pcp_request_t const *request,
   assert(count == 0 || options);
 
   size_t size = PCP_MESSAGE_SIZE[request->type];
-  for (size_t i = 0; i < count; ++i) {
-    if (pcp_option_included(request, &options[i])) {
-      size += pcp_option_size(&options[i]);
+  auto const begin = options;
+  auto const end = options + count;
+  for (auto iter = begin; iter != end; ++iter) {
+    if (pcp_option_included(request, iter)) {
+      size += PCP_OPTION_SIZE[iter->type];
     }
   }
   return size;
 }
 
-// returns the offset after the option
-static size_t
+static void
 pcp_packet_write_option(view_t dst, size_t cursor, pcp_option_t const *option) {
-  auto const length = pcp_option_length(option);
-  assert(dst.size >= cursor + PCP_OPTION_HEADER_SIZE + length);
+  auto const size = PCP_OPTION_SIZE[option->type];
+  assert(dst.size >= cursor + size);
 
-  // header: code, reserved, length
+  // header: code, reserved, length of the data after the header
   dst.data[cursor] = (uint8_t)option->type;
-  pcp_packet_write_uint16_t(dst, cursor + 2, length);
+  pcp_packet_write_uint16_t(dst, cursor + 2,
+                            (uint16_t)(size - PCP_OPTION_HEADER_SIZE));
+  cursor += PCP_OPTION_HEADER_SIZE;
 
-  auto const data = cursor + PCP_OPTION_HEADER_SIZE;
   switch (option->type) {
   case THIRD_PARTY:
-    pcp_packet_write_ip_address(dst, data, &option->third_party.internal);
+    pcp_packet_write_ip_address(dst, cursor, &option->third_party.internal);
     break;
   case FILTER:
     // reserved, prefix length, remote peer port, remote peer IP address
-    dst.data[data + 1] = option->filter.peers.prefix;
-    pcp_packet_write_uint16_t(dst, data + 2, option->filter.port);
-    pcp_packet_write_ip_address(dst, data + 4, &option->filter.peers.address);
+    dst.data[cursor + 1] = option->filter.peers.prefix;
+    pcp_packet_write_uint16_t(dst, cursor + 2, option->filter.port);
+    pcp_packet_write_ip_address(dst, cursor + 4, &option->filter.peers.address);
     break;
   }
-
-  return data + length;
 }
 
 size_t pcp_packet_write_request(view_t dst,
@@ -184,9 +174,12 @@ size_t pcp_packet_write_request(view_t dst,
   }
 
   size_t cursor = PCP_MESSAGE_SIZE[src->type];
-  for (size_t i = 0; i < count; ++i) {
-    if (pcp_option_included(src, &options[i])) {
-      cursor = pcp_packet_write_option(dst, cursor, &options[i]);
+  auto const begin = options;
+  auto const end = options + count;
+  for (auto iter = begin; iter != end; ++iter) {
+    if (pcp_option_included(src, iter)) {
+      pcp_packet_write_option(dst, cursor, iter);
+      cursor += PCP_OPTION_SIZE[iter->type];
     }
   }
 
