@@ -3,6 +3,10 @@
 #include <assert.h>
 #include <stdint.h>
 
+// IRT and MRT from RFC 6887 section 8.1.1
+static constexpr pcp_time_ms_t PCP_BACKOFF_IRT = 3'000;
+static constexpr pcp_time_ms_t PCP_BACKOFF_MRT = 1'024'000;
+
 // minimum gap between renewals (RFC 6887 section 11.2.1)
 static constexpr pcp_time_ms_t PCP_RENEWAL_MIN_INTERVAL = 4'000;
 
@@ -12,16 +16,15 @@ static bool random16(pcp_rng_t rng, uint16_t *out) {
 }
 
 void pcp_schedule_backoff(pcp_schedule_t *schedule,
-                          pcp_backoff_t params,
+                          pcp_optional_count_t limit,
                           pcp_time_ms_t not_before) {
   assert(schedule);
-  assert(params.irt && params.mrt);
 
   *schedule = (pcp_schedule_t){
       .type = PCP_SCHEDULE_BACKOFF,
       .next = not_before,
       .count = 0,
-      .backoff = {.params = params, .start = 0, .rt = 0},
+      .backoff = {.limit = limit, .rt = 0},
   };
 }
 
@@ -66,48 +69,14 @@ void pcp_schedule_renewal(pcp_schedule_t *schedule,
   schedule->next = pcp_schedule_renewal_time(schedule, 0, rng);
 }
 
-// MRD only applies once the first transmission happened
-static bool pcp_schedule_has_mrd(pcp_schedule_t const *schedule) {
-  return schedule->backoff.params.mrd && schedule->count > 0;
-}
-
-static bool pcp_schedule_mrd_reached(pcp_schedule_t const *schedule,
-                                     pcp_time_ms_t now) {
-  return pcp_schedule_has_mrd(schedule) &&
-         now >= schedule->backoff.start + schedule->backoff.params.mrd;
-}
-
-static bool pcp_schedule_mrc_reached(pcp_schedule_t const *schedule) {
-  return schedule->backoff.params.mrc &&
-         schedule->count >= schedule->backoff.params.mrc;
-}
-
-// when the schedule runs out, if ever
-static pcp_optional_time_ms_t
-pcp_schedule_limit(pcp_schedule_t const *schedule) {
-  switch (schedule->type) {
-  case PCP_SCHEDULE_BACKOFF:
-    if (pcp_schedule_has_mrd(schedule)) {
-      return (pcp_optional_time_ms_t){
-          .has_value = true,
-          .value = schedule->backoff.start + schedule->backoff.params.mrd,
-      };
-    }
-    return (pcp_optional_time_ms_t){.has_value = false, .value = 0};
-  case PCP_SCHEDULE_RENEWAL:
-    return (pcp_optional_time_ms_t){
-        .has_value = true,
-        .value = pcp_schedule_expiry(schedule),
-    };
-  }
-}
-
 pcp_time_ms_t pcp_schedule_deadline(pcp_schedule_t const *schedule) {
   assert(schedule);
 
-  auto const limit = pcp_schedule_limit(schedule);
-  if (limit.has_value && limit.value < schedule->next) {
-    return limit.value;
+  // a renewal schedule runs out when the lease expires, even if a renewal is
+  // still due after that
+  if (schedule->type == PCP_SCHEDULE_RENEWAL &&
+      pcp_schedule_expiry(schedule) < schedule->next) {
+    return pcp_schedule_expiry(schedule);
   }
 
   return schedule->next;
@@ -122,12 +91,12 @@ pcp_schedule_status_t pcp_schedule_poll(pcp_schedule_t const *schedule,
   }
 
   switch (schedule->type) {
-  case PCP_SCHEDULE_BACKOFF:
-    if (pcp_schedule_mrc_reached(schedule) ||
-        pcp_schedule_mrd_reached(schedule, now)) {
-      return PCP_SCHEDULE_EXHAUSTED;
-    }
-    return PCP_SCHEDULE_DUE;
+  case PCP_SCHEDULE_BACKOFF: {
+    auto const limit = schedule->backoff.limit;
+    return limit.has_value && schedule->count >= limit.value
+               ? PCP_SCHEDULE_EXHAUSTED
+               : PCP_SCHEDULE_DUE;
+  }
   case PCP_SCHEDULE_RENEWAL:
     return now >= pcp_schedule_expiry(schedule) ? PCP_SCHEDULE_EXHAUSTED
                                                 : PCP_SCHEDULE_DUE;
@@ -159,15 +128,12 @@ static void pcp_schedule_advance_backoff(pcp_schedule_t *schedule,
 
   // RT = (1 + RAND) * IRT for the first transmission, (2 + RAND) * RTprev after
   // that, and (1 + RAND) * MRT once that would exceed MRT
-  auto rt = schedule->count == 0 ? scale(backoff->params.irt, rand)
+  auto rt = schedule->count == 0 ? scale(PCP_BACKOFF_IRT, rand)
                                  : scale(backoff->rt, 1000 + rand);
-  if (rt > backoff->params.mrt) {
-    rt = scale(backoff->params.mrt, rand);
+  if (rt > PCP_BACKOFF_MRT) {
+    rt = scale(PCP_BACKOFF_MRT, rand);
   }
 
-  if (schedule->count == 0) {
-    backoff->start = now;
-  }
   backoff->rt = rt;
   schedule->next = now + rt;
 }

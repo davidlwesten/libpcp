@@ -7,8 +7,6 @@
 #include "response.h"
 #include "schedule.h"
 
-bool pcp_nonce_generate(pcp_rng_t rng, pcp_nonce_t *out);
-
 /**
  * @brief What the server granted
  */

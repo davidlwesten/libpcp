@@ -102,24 +102,6 @@ void pcp_session_end(pcp_session_t *ctx) {
   FREE(ctx->config.allocator, ctx);
 }
 
-static void pcp_session_add_mapping(pcp_session_t *session,
-                                    pcp_mapping_t *mapping) {
-  assert(session);
-  assert(mapping);
-  assert(mapping->next == nullptr);
-
-  if (!session->mappings) {
-    session->mappings = mapping;
-  } else {
-    auto iter = session->mappings;
-    while (iter->next) {
-      iter = iter->next;
-    }
-
-    iter->next = mapping;
-  }
-}
-
 static pcp_handle_or_error_t
 pcp_session_request(pcp_session_t *session,
                     pcp_request_t request,
@@ -135,6 +117,15 @@ pcp_session_request(pcp_session_t *session,
     };
   }
 
+  auto const rng = session->config.rng;
+  pcp_nonce_t nonce = {0};
+  if (!rng.fill(rng.ctx, sizeof(nonce.data), nonce.data)) {
+    return (pcp_handle_or_error_t){
+        .has_value = false,
+        .error = ENOTRECOVERABLE,
+    };
+  }
+
   pcp_mapping_t *mapping =
       ALLOC(session->config.allocator,
             sizeof(pcp_mapping_t) + sizeof(pcp_option_t) * count);
@@ -145,19 +136,13 @@ pcp_session_request(pcp_session_t *session,
     };
   }
 
-  pcp_nonce_t nonce = {0};
-  if (!pcp_nonce_generate(session->config.rng, &nonce)) {
-    FREE(session->config.allocator, mapping);
-    return (pcp_handle_or_error_t){
-        .has_value = false,
-        .error = ENOTRECOVERABLE,
-    };
-  }
-
   // starts at 1 so 0 is never a valid handle
   auto const handle = ++session->handles;
   pcp_mapping_init(mapping, handle, request, nonce, count, options);
-  pcp_session_add_mapping(session, mapping);
+
+  // the order of the list doesn't matter
+  mapping->next = session->mappings;
+  session->mappings = mapping;
 
   return (pcp_handle_or_error_t){
       .has_value = true,
@@ -273,9 +258,9 @@ void pcp_session_on_datagram(pcp_session_t *session,
   }
 
   if (!pcp_epoch_update(&session->epoch, now, response.epoch)) {
-    // The server lost its state, so request everything again. After an
-    // ANNOUNCE wait a random 0-5s first because every client on the network got
-    // it at the same time (RFC 6887 section 14.1.3).
+    // The server lost its state, so request everything again. If this was due
+    // to ANNOUNCE wait a random 0-5s first because every client on the network
+    // got it at the same time
     pcp_time_ms_t not_before = 0;
     if (response.type == ANNOUNCE) {
       auto const rng = session->config.rng;

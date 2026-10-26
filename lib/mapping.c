@@ -16,7 +16,7 @@ static void pcp_mapping_enter_pending(pcp_mapping_t *mapping,
   // also restarts the schedule of a PENDING mapping
   assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
   mapping->state = (pcp_mapping_state_t){.type = PENDING};
-  pcp_schedule_backoff(&mapping->state.pending.schedule, PCP_BACKOFF_DEFAULT,
+  pcp_schedule_backoff(&mapping->state.pending.schedule, PCP_BACKOFF_UNBOUNDED,
                        not_before);
 }
 
@@ -428,11 +428,4 @@ pcp_optional_time_ms_t pcp_mapping_deadline(pcp_mapping_t const *mapping) {
   case RELEASED:
     return (pcp_optional_time_ms_t){.has_value = false, .value = 0};
   }
-}
-
-bool pcp_nonce_generate(pcp_rng_t rng, pcp_nonce_t *out) {
-  assert(rng.fill);
-  assert(out);
-
-  return rng.fill(rng.ctx, sizeof(out->data), out->data);
 }

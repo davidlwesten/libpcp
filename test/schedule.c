@@ -19,7 +19,7 @@ static pcp_rng_t const JITTER_WRAP = {.fill = test_rng_fixed,
 
 static void test_schedule_due_at_start() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 1'000);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 1'000);
 
   TEST_ASSERT_EQUAL(PCP_SCHEDULE_WAIT, pcp_schedule_poll(&schedule, 999));
   TEST_ASSERT_EQUAL(PCP_SCHEDULE_DUE, pcp_schedule_poll(&schedule, 1'000));
@@ -28,7 +28,7 @@ static void test_schedule_due_at_start() {
 
 static void test_schedule_backoff_without_jitter() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
 
   // RT doubles from IRT: 3s, 6s, 12s, 24s, ...
   pcp_time_ms_t const expected[] = {3'000,  9'000,   21'000,  45'000,
@@ -47,12 +47,12 @@ static void test_schedule_backoff_without_jitter() {
 
 static void test_schedule_backoff_capped_at_mrt() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
 
   for (int i = 0; i < 20; ++i) {
     pcp_schedule_advance(&schedule, 0, JITTER_NONE);
   }
-  TEST_ASSERT_EQUAL_UINT64(PCP_BACKOFF_DEFAULT.mrt, schedule.backoff.rt);
+  TEST_ASSERT_EQUAL_UINT64(1'024'000, schedule.backoff.rt);
 
   // the cap applies jitter to MRT, not to the doubled RT
   pcp_schedule_advance(&schedule, 0, JITTER_MAX);
@@ -64,13 +64,13 @@ static void test_schedule_backoff_capped_at_mrt() {
 static void test_schedule_jitter_bounds() {
   pcp_schedule_t schedule;
 
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
   pcp_schedule_advance(&schedule, 0, JITTER_MAX);
   TEST_ASSERT_EQUAL_UINT64(3'300, schedule.backoff.rt);
   pcp_schedule_advance(&schedule, 0, JITTER_MAX);
   TEST_ASSERT_EQUAL_UINT64(6'930, schedule.backoff.rt); // (2 + 0.1) * 3.3s
 
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
   pcp_schedule_advance(&schedule, 0, JITTER_MIN);
   TEST_ASSERT_EQUAL_UINT64(2'700, schedule.backoff.rt);
   pcp_schedule_advance(&schedule, 0, JITTER_MIN);
@@ -79,7 +79,7 @@ static void test_schedule_jitter_bounds() {
 
 static void test_schedule_jitter_wraps_random() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
 
   pcp_schedule_advance(&schedule, 0, JITTER_WRAP);
   TEST_ASSERT_EQUAL_UINT64(2'727, schedule.backoff.rt);
@@ -87,7 +87,7 @@ static void test_schedule_jitter_wraps_random() {
 
 static void test_schedule_no_jitter_when_rng_fails() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
 
   pcp_schedule_advance(&schedule, 0,
                        (pcp_rng_t){.fill = test_rng_failing, .ctx = nullptr});
@@ -96,19 +96,17 @@ static void test_schedule_no_jitter_when_rng_fails() {
 
 static void test_schedule_next_relative_to_transmission() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
 
   // a late transmission pushes the retransmission back instead of bursting
   pcp_schedule_advance(&schedule, 10'000, JITTER_NONE);
   TEST_ASSERT_EQUAL_UINT64(13'000, pcp_schedule_deadline(&schedule));
 }
 
-static void test_schedule_exhausted_by_mrc() {
-  pcp_backoff_t params = PCP_BACKOFF_DEFAULT;
-  params.mrc = 2;
-
+static void test_schedule_exhausted_by_limit() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, params, 0);
+  pcp_schedule_backoff(
+      &schedule, (pcp_optional_count_t){.has_value = true, .value = 2}, 0);
 
   pcp_schedule_advance(&schedule, 0, JITTER_NONE);
   TEST_ASSERT_EQUAL(PCP_SCHEDULE_DUE, pcp_schedule_poll(&schedule, 3'000));
@@ -120,53 +118,15 @@ static void test_schedule_exhausted_by_mrc() {
                     pcp_schedule_poll(&schedule, 9'000));
 }
 
-static void test_schedule_exhausted_by_mrd() {
-  pcp_backoff_t params = PCP_BACKOFF_DEFAULT;
-  params.mrd = 5'000;
-
-  pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, params, 1'000);
-
-  pcp_schedule_advance(&schedule, 1'000, JITTER_NONE);
-  pcp_schedule_advance(&schedule, 4'000, JITTER_NONE);
-
-  // the next transmission (10s) lies beyond MRD, so the deadline is MRD
-  TEST_ASSERT_EQUAL_UINT64(6'000, pcp_schedule_deadline(&schedule));
-  TEST_ASSERT_EQUAL(PCP_SCHEDULE_WAIT, pcp_schedule_poll(&schedule, 5'999));
-  TEST_ASSERT_EQUAL(PCP_SCHEDULE_EXHAUSTED,
-                    pcp_schedule_poll(&schedule, 6'000));
-}
-
-static void test_schedule_mrd_from_first_transmission() {
-  pcp_backoff_t params = PCP_BACKOFF_DEFAULT;
-  params.mrd = 5'000;
-
-  pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, params, 0);
-
-  // not yet sent: due whatever the time, MRD hasn't started counting
-  TEST_ASSERT_EQUAL_UINT64(0, pcp_schedule_deadline(&schedule));
-  TEST_ASSERT_EQUAL(PCP_SCHEDULE_DUE, pcp_schedule_poll(&schedule, 100'000));
-
-  pcp_schedule_advance(&schedule, 100'000, JITTER_NONE);
-  TEST_ASSERT_EQUAL_UINT64(103'000, pcp_schedule_deadline(&schedule));
-  TEST_ASSERT_EQUAL(PCP_SCHEDULE_DUE, pcp_schedule_poll(&schedule, 103'000));
-
-  pcp_schedule_advance(&schedule, 103'000, JITTER_NONE);
-  TEST_ASSERT_EQUAL_UINT64(105'000, pcp_schedule_deadline(&schedule));
-  TEST_ASSERT_EQUAL(PCP_SCHEDULE_EXHAUSTED,
-                    pcp_schedule_poll(&schedule, 105'000));
-}
-
 static void test_schedule_restart() {
   pcp_schedule_t schedule;
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 0);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 0);
   for (int i = 0; i < 5; ++i) {
     pcp_schedule_advance(&schedule, 0, JITTER_NONE);
   }
 
   // e.g. a retryable error asking us to wait before trying again
-  pcp_schedule_backoff(&schedule, PCP_BACKOFF_DEFAULT, 50'000);
+  pcp_schedule_backoff(&schedule, PCP_BACKOFF_UNBOUNDED, 50'000);
   TEST_ASSERT_EQUAL(PCP_SCHEDULE_WAIT, pcp_schedule_poll(&schedule, 49'999));
   TEST_ASSERT_EQUAL(PCP_SCHEDULE_DUE, pcp_schedule_poll(&schedule, 50'000));
   pcp_schedule_advance(&schedule, 50'000, JITTER_NONE);
@@ -271,8 +231,6 @@ void schedule_tests() {
   RUN_TEST(test_schedule_jitter_wraps_random);
   RUN_TEST(test_schedule_no_jitter_when_rng_fails);
   RUN_TEST(test_schedule_next_relative_to_transmission);
-  RUN_TEST(test_schedule_exhausted_by_mrc);
-  RUN_TEST(test_schedule_exhausted_by_mrd);
-  RUN_TEST(test_schedule_mrd_from_first_transmission);
+  RUN_TEST(test_schedule_exhausted_by_limit);
   RUN_TEST(test_schedule_restart);
 }

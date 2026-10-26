@@ -2,32 +2,25 @@
 
 #include <pcp/pcp.h>
 
-typedef struct pcp_backoff {
-  /// Initial retransmission time, must be non-zero
-  pcp_time_ms_t irt;
-  /// Maximum retransmission time, must be non-zero
-  pcp_time_ms_t mrt;
-  /// Maximum retransmission duration, 0 = unbounded
-  pcp_time_ms_t mrd;
-  /// Maximum retransmission count, 0 = unbounded
-  uint32_t mrc;
-} pcp_backoff_t;
+typedef struct pcp_optional_count {
+  bool has_value;
+  uint32_t value;
+} pcp_optional_count_t;
 
-static constexpr pcp_backoff_t PCP_BACKOFF_DEFAULT = {
-    .irt = 3'000,
-    .mrt = 1'024'000,
-    .mrd = 0,
-    .mrc = 0,
+/**
+ * @brief Keep retransmitting until there's an answer
+ */
+static constexpr pcp_optional_count_t PCP_BACKOFF_UNBOUNDED = {
+    .has_value = false,
+    .value = 0,
 };
 
 /**
  * @brief For delete requests. If none get an answer the mapping just expires.
  */
-static constexpr pcp_backoff_t PCP_BACKOFF_RELEASE = {
-    .irt = 3'000,
-    .mrt = 1'024'000,
-    .mrd = 0,
-    .mrc = 3,
+static constexpr pcp_optional_count_t PCP_BACKOFF_RELEASE = {
+    .has_value = true,
+    .value = 3,
 };
 
 typedef struct pcp_schedule {
@@ -43,9 +36,8 @@ typedef struct pcp_schedule {
   uint32_t count;
   union {
     struct {
-      pcp_backoff_t params;
-      /// First transmission, valid once count > 0
-      pcp_time_ms_t start;
+      /// How many transmissions at most (MRC)
+      pcp_optional_count_t limit;
       /// Current retransmission interval
       pcp_time_ms_t rt;
     } backoff;
@@ -70,10 +62,11 @@ typedef enum pcp_schedule_status {
 /**
  * @brief Start a backoff with the first transmission due at `not_before`
  *
- * Pass 0 to send right away. MRD counts from the first transmission.
+ * Pass 0 to send right away. Exhausted once the last of `limit` transmissions
+ * timed out.
  */
 void pcp_schedule_backoff(pcp_schedule_t *schedule,
-                          pcp_backoff_t params,
+                          pcp_optional_count_t limit,
                           pcp_time_ms_t not_before);
 
 /**
