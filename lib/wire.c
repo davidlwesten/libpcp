@@ -226,6 +226,12 @@ static socket_address_t pcp_packet_body_read_socket_address(const_view_t src,
   };
 }
 
+static pcp_nonce_t pcp_packet_body_read_nonce(const_view_t src) {
+  pcp_nonce_t result = {0};
+  memcpy(result.data, src.data + PCP_PACKET_HEADER_SIZE, sizeof(result.data));
+  return result;
+}
+
 bool pcp_packet_read_response(const_view_t src, pcp_response_t *out) {
   assert(src.data);
   assert(out);
@@ -240,11 +246,12 @@ bool pcp_packet_read_response(const_view_t src, pcp_response_t *out) {
     return false;
   }
 
-  // only opcodes we send requests for can have a matching response. This also
-  // rejects error responses the server couldn't attach a body (and therefore a
-  // nonce) to, which couldn't be matched to a mapping anyway
+  // ANNOUNCE responses tell us about the server's epoch, and only opcodes we
+  // send requests for can have a matching response. This also rejects error
+  // responses the server couldn't attach a body (and therefore a nonce) to,
+  // which couldn't be matched to a mapping anyway
   auto const opcode = (pcp_opcode_t)(src.data[1] & ~PCP_RESPONSE_BIT);
-  if ((opcode != MAP && opcode != PEER) ||
+  if ((opcode != ANNOUNCE && opcode != MAP && opcode != PEER) ||
       src.size < PCP_MESSAGE_SIZE[opcode]) {
     return false;
   }
@@ -254,19 +261,24 @@ bool pcp_packet_read_response(const_view_t src, pcp_response_t *out) {
       .result = (pcp_result_t)src.data[3],
       .lifetime = pcp_packet_read_uint32_t(src, 4),
       .epoch = pcp_packet_read_uint32_t(src, 8),
-      .protocol = (pcp_protocol_t)src.data[PCP_PACKET_HEADER_SIZE + 12],
-      .port = pcp_packet_read_uint16_t(src, PCP_PACKET_HEADER_SIZE + 16),
   };
-  memcpy(out->nonce.data, src.data + PCP_PACKET_HEADER_SIZE,
-         sizeof(out->nonce.data));
 
-  // the first 36 bytes of the MAP and PEER bodies share their layout
-  auto const external = pcp_packet_body_read_socket_address(src, 18, 20);
-  if (opcode == MAP) {
-    out->map.external = external;
-  } else {
-    out->peer.external = external;
+  switch (opcode) {
+  case ANNOUNCE:
+    break;
+  case MAP:
+    out->map.nonce = pcp_packet_body_read_nonce(src);
+    out->map.protocol = (pcp_protocol_t)src.data[PCP_PACKET_HEADER_SIZE + 12];
+    out->map.port = pcp_packet_read_uint16_t(src, PCP_PACKET_HEADER_SIZE + 16);
+    out->map.external = pcp_packet_body_read_socket_address(src, 18, 20);
+    break;
+  case PEER:
+    out->peer.nonce = pcp_packet_body_read_nonce(src);
+    out->peer.protocol = (pcp_protocol_t)src.data[PCP_PACKET_HEADER_SIZE + 12];
+    out->peer.port = pcp_packet_read_uint16_t(src, PCP_PACKET_HEADER_SIZE + 16);
+    out->peer.external = pcp_packet_body_read_socket_address(src, 18, 20);
     out->peer.peer = pcp_packet_body_read_socket_address(src, 36, 40);
+    break;
   }
 
   return true;

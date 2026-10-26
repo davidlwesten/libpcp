@@ -613,6 +613,76 @@ static void test_session_response_revealing_reset_not_applied() {
   end();
 }
 
+// an unsolicited ANNOUNCE from the server
+static void
+announce(pcp_time_ms_t now, pcp_time_s_t epoch, pcp_result_t result) {
+  uint8_t data[24] = {0x02, 0x80, 0x00, result};
+  write_uint32(data + 8, epoch);
+  pcp_session_on_datagram(session, now, sizeof(data), data);
+}
+
+// with the fake RNG at this value, requests wait 2.5s after an ANNOUNCE
+static constexpr uint16_t announce_delay_half = 32'768;
+
+static void test_session_announce_consistent_epoch_ignored() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  announce(10'000, 1'010, SUCCESS);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(10'000));
+  TEST_ASSERT_EQUAL_UINT64(first_renewal, deadline);
+  end();
+}
+
+static void test_session_announce_reset_unmaps_then_waits() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  rng_value = announce_delay_half;
+  announce(1'000, 0, SUCCESS);
+
+  // the application learns straight away, the request waits for the delay
+  auto const event = next_event(1'000);
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, event.type);
+  TEST_ASSERT_EQUAL_UINT64(handle, event.unmapped.handle);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1'000));
+  TEST_ASSERT_EQUAL_UINT64(3'500, deadline);
+
+  // trying to get the previous mapping back
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3'500));
+  auto const suggestion = suggested();
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(external_ip.addr, suggestion.ip.addr, 16);
+  TEST_ASSERT_EQUAL_UINT16(external_port, suggestion.port);
+  end();
+}
+
+static void test_session_announce_reset_delays_pending_mapping() {
+  begin(100);
+  map();
+  TEST_ASSERT_EQUAL_size_t(1, send_due(0));
+  receive_response(500, 1'000);
+
+  rng_value = announce_delay_half;
+  announce(1'000, 3, SUCCESS);
+  TEST_ASSERT_EQUAL_size_t(0, send_due(1'000));
+  TEST_ASSERT_EQUAL_UINT64(3'500, deadline);
+  TEST_ASSERT_EQUAL_size_t(1, send_due(3'500));
+  end();
+}
+
+static void test_session_announce_error_still_resets() {
+  begin(100);
+  auto const handle = map();
+  establish(handle, 0);
+
+  // every response carries the server's epoch, whatever its result
+  announce(1'000, 3, NO_RESOURCES);
+  TEST_ASSERT_EQUAL(PCP_EVENT_UNMAPPED, next_event(1'000).type);
+  end();
+}
+
 static void test_session_ignores_malformed_datagrams() {
   begin(100);
   map();
@@ -673,5 +743,9 @@ void session_tests() {
   RUN_TEST(test_session_server_reset_pending_mapping_not_unmapped);
   RUN_TEST(test_session_server_reset_before_mapped_event);
   RUN_TEST(test_session_response_revealing_reset_not_applied);
+  RUN_TEST(test_session_announce_consistent_epoch_ignored);
+  RUN_TEST(test_session_announce_reset_unmaps_then_waits);
+  RUN_TEST(test_session_announce_reset_delays_pending_mapping);
+  RUN_TEST(test_session_announce_error_still_resets);
   RUN_TEST(test_session_ignores_malformed_datagrams);
 }

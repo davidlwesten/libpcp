@@ -102,12 +102,18 @@ set(TEST_CASES
   test_session_server_reset_pending_mapping_not_unmapped
   test_session_server_reset_before_mapped_event
   test_session_response_revealing_reset_not_applied
+  test_session_announce_consistent_epoch_ignored
+  test_session_announce_reset_unmaps_then_waits
+  test_session_announce_reset_delays_pending_mapping
+  test_session_announce_error_still_resets
   test_session_ignores_malformed_datagrams
   test_wire_map_request
   test_wire_map_request_without_suggestion
   test_wire_peer_request
   test_wire_read_map_response
   test_wire_read_peer_response
+  test_wire_read_announce_response
+  test_wire_read_announce_response_skips_options
   test_wire_read_error_response
   test_wire_read_response_skips_options
   test_wire_read_response_rejects_malformed)

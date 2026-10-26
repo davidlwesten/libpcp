@@ -42,9 +42,13 @@ static void pcp_mapping_enter_active(pcp_mapping_t *mapping,
                        lease.lifetime, rng);
 }
 
-static void pcp_mapping_enter_lost(pcp_mapping_t *mapping) {
+static void pcp_mapping_enter_lost(pcp_mapping_t *mapping,
+                                   pcp_time_ms_t not_before) {
   assert(mapping->state.type == ACTIVE);
-  mapping->state = (pcp_mapping_state_t){.type = LOST};
+  mapping->state = (pcp_mapping_state_t){
+      .type = LOST,
+      .lost = {.not_before = not_before},
+  };
 }
 
 static void pcp_mapping_enter_refused(pcp_mapping_t *mapping,
@@ -83,23 +87,30 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
 }
 
 // RFC 6887 §11.4 and §12.4
+static bool pcp_mapping_matches_body(pcp_mapping_t const *mapping,
+                                     pcp_nonce_t const *nonce,
+                                     pcp_protocol_t protocol,
+                                     port_t port) {
+  return memcmp(nonce->data, mapping->nonce.data, sizeof(nonce->data)) == 0 &&
+         protocol == mapping->request.protocol && port == mapping->request.port;
+}
+
 static bool pcp_mapping_matches(pcp_mapping_t const *mapping,
                                 pcp_response_t const *response) {
   auto const request = &mapping->request;
-
-  if (response->type != request->type ||
-      memcmp(response->nonce.data, mapping->nonce.data,
-             sizeof(response->nonce.data)) != 0 ||
-      response->protocol != request->protocol ||
-      response->port != request->port) {
+  if (response->type != request->type) {
     return false;
   }
 
-  switch (request->type) {
+  switch (response->type) {
   case MAP:
-    return true;
+    return pcp_mapping_matches_body(mapping, &response->map.nonce,
+                                    response->map.protocol, response->map.port);
   case PEER:
-    return socket_address_cmp(&response->peer.peer, &request->peer.peer) == 0;
+    return pcp_mapping_matches_body(mapping, &response->peer.nonce,
+                                    response->peer.protocol,
+                                    response->peer.port) &&
+           socket_address_cmp(&response->peer.peer, &request->peer.peer) == 0;
   case ANNOUNCE:
     return false;
   }
@@ -185,6 +196,7 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
                              pcp_rng_t rng) {
   assert(mapping);
   assert(response);
+  assert(response->type == MAP || response->type == PEER);
 
   // only PENDING and ACTIVE mappings send requests, so only they can be
   // waiting for a response
@@ -275,7 +287,7 @@ static bool pcp_mapping_update_confirmed(pcp_mapping_t *mapping,
 
 static bool pcp_mapping_update_lost(pcp_mapping_t *mapping, pcp_event_t *out) {
   // request the mapping again, like a new one
-  pcp_mapping_enter_pending(mapping, 0);
+  pcp_mapping_enter_pending(mapping, mapping->state.lost.not_before);
 
   *out = (pcp_event_t){
       .type = PCP_EVENT_UNMAPPED,
@@ -300,7 +312,7 @@ static bool pcp_mapping_update_active(pcp_mapping_t *mapping,
     return pcp_mapping_send(mapping, schedule, now, config, out);
   case PCP_SCHEDULE_EXHAUSTED:
     // no renewal succeeded before the lease expired
-    pcp_mapping_enter_lost(mapping);
+    pcp_mapping_enter_lost(mapping, 0);
     return pcp_mapping_update_lost(mapping, out);
   }
 }
@@ -321,22 +333,22 @@ static bool pcp_mapping_update_refused(pcp_mapping_t *mapping,
   return true;
 }
 
-void pcp_mapping_reset(pcp_mapping_t *mapping) {
+void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before) {
   assert(mapping);
 
   // RFC 6887 §8.5: the mapping is gone (or about to be), so request it again
-  // straight away rather than continuing any backoff
+  // rather than continuing any backoff
   switch (mapping->state.type) {
   case PENDING:
   case CONFIRMED:
     // the application never learned about a CONFIRMED mapping's address, so
     // there's nothing to take back
-    pcp_mapping_enter_pending(mapping, 0);
+    pcp_mapping_enter_pending(mapping, not_before);
     break;
   case ACTIVE:
     // the application has to learn its external address is gone first, the
     // request follows once it's PENDING again
-    pcp_mapping_enter_lost(mapping);
+    pcp_mapping_enter_lost(mapping, not_before);
     break;
   case LOST:
   case REFUSED:

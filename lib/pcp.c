@@ -182,12 +182,29 @@ void pcp_session_on_datagram(pcp_session_t *session,
   }
 
   if (!pcp_epoch_update(&session->epoch, now, response.epoch)) {
+    // RFC 6887 §8.5 asks to request every mapping again straight away, but an
+    // ANNOUNCE reaches many clients at once so §14.1.3 asks to wait a random
+    // time of up to 5s first (or not at all if the RNG fails)
+    pcp_time_ms_t not_before = 0;
+    if (response.type == ANNOUNCE) {
+      auto const rng = session->config.rng;
+      uint16_t random = 0;
+      if (rng.random(rng.ctx, sizeof(random), (uint8_t *)&random)) {
+        not_before = now + 5'000 * (pcp_time_ms_t)random / UINT16_MAX;
+      }
+    }
+
     for (auto iter = session->mappings; iter; iter = iter->next) {
-      pcp_mapping_reset(iter);
+      pcp_mapping_reset(iter, not_before);
     }
 
     // the response may just as well be a stale one from before a restart, and
     // every mapping is requested again anyway, so don't act on it
+    return;
+  }
+
+  // an ANNOUNCE only tells us about the epoch
+  if (response.type == ANNOUNCE) {
     return;
   }
 

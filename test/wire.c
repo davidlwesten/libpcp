@@ -161,15 +161,15 @@ static void test_wire_read_map_response() {
   TEST_ASSERT_EQUAL(SUCCESS, response.result);
   TEST_ASSERT_EQUAL_UINT32(7200, response.lifetime);
   TEST_ASSERT_EQUAL_UINT32(1000, response.epoch);
-  TEST_ASSERT_EQUAL(UDP, response.protocol);
-  TEST_ASSERT_EQUAL_UINT16(12345, response.port);
+  TEST_ASSERT_EQUAL(UDP, response.map.protocol);
+  TEST_ASSERT_EQUAL_UINT16(12345, response.map.port);
 
   auto const external = ip_address_from_octets(203, 0, 113, 7);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(external.addr, response.map.external.ip.addr,
                                 16);
   TEST_ASSERT_EQUAL_UINT16(54321, response.map.external.port);
 
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(nonce.data, response.nonce.data,
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(nonce.data, response.map.nonce.data,
                                 sizeof(nonce.data));
 }
 
@@ -189,10 +189,43 @@ static void test_wire_read_peer_response() {
   TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
 
   TEST_ASSERT_EQUAL(PEER, response.type);
-  TEST_ASSERT_EQUAL(TCP, response.protocol);
+  TEST_ASSERT_EQUAL(TCP, response.peer.protocol);
+  TEST_ASSERT_EQUAL_UINT16(12345, response.peer.port);
   TEST_ASSERT_EQUAL_UINT16(54321, response.peer.external.port);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(nonce.data, response.peer.nonce.data,
+                                sizeof(nonce.data));
   TEST_ASSERT_EQUAL_UINT16(443, response.peer.peer.port);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(peer.addr, response.peer.peer.ip.addr, 16);
+}
+
+static void test_wire_read_announce_response() {
+  // clang-format off
+  uint8_t const data[] = {
+      // header: version, R + opcode, reserved, result code
+      0x02, 0x80, 0x00, 0x00,
+      // lifetime: 0
+      0x00, 0x00, 0x00, 0x00,
+      // epoch time: 5
+      0x00, 0x00, 0x00, 0x05,
+      // reserved
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  // clang-format on
+
+  pcp_response_t response = {0};
+  TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
+  TEST_ASSERT_EQUAL(ANNOUNCE, response.type);
+  TEST_ASSERT_EQUAL(SUCCESS, response.result);
+  TEST_ASSERT_EQUAL_UINT32(0, response.lifetime);
+  TEST_ASSERT_EQUAL_UINT32(5, response.epoch);
+}
+
+static void test_wire_read_announce_response_skips_options() {
+  uint8_t data[32] = {0x02, 0x80};
+  data[24] = 0x80; // an unknown, optional option code
+
+  pcp_response_t response = {0};
+  TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
+  TEST_ASSERT_EQUAL(ANNOUNCE, response.type);
 }
 
 static void test_wire_read_error_response() {
@@ -232,7 +265,6 @@ static bool read_modified(size_t size, void (*modify)(uint8_t data[])) {
 
 static void wrong_version(uint8_t data[]) { data[0] = 1; }
 static void request_bit(uint8_t data[]) { data[1] = MAP; }
-static void announce(uint8_t data[]) { data[1] = 0x80; }
 static void unknown_opcode(uint8_t data[]) { data[1] = 0x83; }
 static void peer_opcode(uint8_t data[]) { data[1] = 0x82; }
 
@@ -248,7 +280,6 @@ static void test_wire_read_response_rejects_malformed() {
   // header
   TEST_ASSERT_FALSE(read_modified(sizeof(map_response), wrong_version));
   TEST_ASSERT_FALSE(read_modified(sizeof(map_response), request_bit));
-  TEST_ASSERT_FALSE(read_modified(sizeof(map_response), announce));
   TEST_ASSERT_FALSE(read_modified(sizeof(map_response), unknown_opcode));
 
   // a body too short for its opcode, e.g. an error without the request's body
@@ -262,6 +293,8 @@ void wire_tests() {
   RUN_TEST(test_wire_peer_request);
   RUN_TEST(test_wire_read_map_response);
   RUN_TEST(test_wire_read_peer_response);
+  RUN_TEST(test_wire_read_announce_response);
+  RUN_TEST(test_wire_read_announce_response_skips_options);
   RUN_TEST(test_wire_read_error_response);
   RUN_TEST(test_wire_read_response_skips_options);
   RUN_TEST(test_wire_read_response_rejects_malformed);

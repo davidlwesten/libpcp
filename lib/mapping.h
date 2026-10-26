@@ -39,6 +39,9 @@ typedef struct pcp_mapping_state {
       pcp_schedule_t schedule; // renewals
     } active;
     struct {
+      pcp_time_ms_t not_before; // when to request the mapping again
+    } lost;
+    struct {
       pcp_result_t result;
     } refused;
   };
@@ -75,8 +78,10 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
 
 /**
  * @brief Request the mapping again because the server lost its state
+ *
+ * @param[in] not_before When to send the request, 0 for straight away
  */
-void pcp_mapping_reset(pcp_mapping_t *mapping);
+void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before);
 
 bool pcp_mapping_update(pcp_mapping_t *mapping,
                         pcp_time_ms_t now,
