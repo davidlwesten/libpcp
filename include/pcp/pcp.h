@@ -8,9 +8,8 @@
 /**
  * @brief A point in time in milliseconds
  *
- * Must come from a monotonic clock (e.g. CLOCK_MONOTONIC), never wall-clock
- * time. The origin is up to the application; the library only compares and
- * subtracts these values.
+ * Has to come from a monotonic clock like CLOCK_MONOTONIC, not wall-clock time.
+ * Any origin works, only differences matter.
  */
 typedef uint64_t pcp_time_ms_t;
 
@@ -44,10 +43,9 @@ typedef struct pcp_config {
   ip_address_t local;
   pcp_allocator_t allocator;
   pcp_rng_t rng;
-  /// Where outgoing packets are written, see PCP_EVENT_SEND. Must hold at least
-  /// PCP_PACKET_MAX_SIZE bytes and stay alive until pcp_session_end. Every
-  /// pcp_session_poll may overwrite it, so the application shouldn't use
-  /// it for anything else
+  /// Outgoing packets are written here (see PCP_EVENT_SEND). Needs at least
+  /// PCP_PACKET_MAX_SIZE bytes and has to outlive the session. Don't use it for
+  /// anything else, any poll can overwrite it.
   pcp_buffer_t buffer;
 } pcp_config_t;
 
@@ -58,9 +56,9 @@ pcp_session_t *pcp_session_begin(pcp_config_t config);
 /**
  * @brief Free the session and its mappings
  *
- * The server isn't told, so its mappings live on until their leases expire. To
- * delete them first, release every mapping (see pcp_session_release) and poll
- * until PCP_EVENT_TIMEOUT comes without a deadline.
+ * Doesn't tell the server, so mappings stay around until their leases run out.
+ * For a clean shutdown, release all mappings and keep polling until
+ * PCP_EVENT_TIMEOUT has no deadline.
  */
 void pcp_session_end(pcp_session_t *session);
 
@@ -77,19 +75,17 @@ typedef enum pcp_opcode : uint8_t {
 } pcp_opcode_t;
 
 /**
- * An option to attach to a request, see RFC 6887 §13
+ * Request option (RFC 6887 section 13)
  *
- * The session sends options as given, it's up to the server to reject the ones
- * that don't make sense (resulting in PCP_EVENT_FAILED).
+ * Options are sent as they are. If the server rejects one, the mapping fails.
  */
 typedef struct pcp_option {
   enum {
-    /// Request the mapping on behalf of another internal host (MAP and PEER)
+    /// Map on behalf of another internal host (MAP and PEER)
     THIRD_PARTY = 1,
-    /// Only let traffic from `filter.peers` through (MAP only). The server
-    /// adds the filters of every request to the mapping's, renewals included,
-    /// and a prefix of 0 removes all of them (RFC 6887 §13.3). Left out when
-    /// the mapping is released
+    /// Only allow traffic from `filter.peers` (MAP only). Filters add up across
+    /// requests, renewals included, and a prefix of 0 clears them. Not sent
+    /// when releasing.
     FILTER = 3,
   } type;
   union {
@@ -103,8 +99,7 @@ typedef struct pcp_option {
   };
 } pcp_option_t;
 
-/// Identifies a mapping within its session. Never reused, so a handle that's no
-/// longer valid can't refer to a different mapping
+/// Mapping ID, unique within a session. IDs are never reused.
 typedef uint64_t pcp_handle_t;
 typedef typeof(errno) errno_t;
 
@@ -120,7 +115,7 @@ typedef struct pcp_handle_or_error {
  * @brief Allocate a new map request
  *
  * @param[in] session  The session that owns this request
- * @param[in] lifetime The requested lifetime of the mapping
+ * @param[in] lifetime The requested lifetime of the mapping (not 0)
  * @param[in] protocol The protocol the mapping should affect (ALL, UDP, or TCP)
  * @param[in] port     The internal port for this mapping
  * @param[in] count    The number of options that should be included
@@ -129,8 +124,8 @@ typedef struct pcp_handle_or_error {
  * The request is due immediately, so the application should poll the session
  * afterwards, see pcp_session_poll.
  *
- * @returns The handle on success or an error otherwise, e.g. EMSGSIZE if the
- *          options don't fit into a packet
+ * @returns The handle, or an error (EMSGSIZE if the options don't fit in a
+ *          packet)
  */
 pcp_handle_or_error_t
 pcp_session_map_request(pcp_session_t *session,
@@ -144,7 +139,7 @@ pcp_session_map_request(pcp_session_t *session,
  * @brief Allocate a new peer request
  *
  * @param[in] session  The session that owns this request
- * @param[in] lifetime The requested lifetime of the mapping
+ * @param[in] lifetime The requested lifetime of the mapping (not 0)
  * @param[in] protocol The protocol the mapping should affect (ALL, UDP, or TCP)
  * @param[in] port     The internal port for the mapping
  * @param[in] peer     The peer address the server should use for the mapping
@@ -154,8 +149,8 @@ pcp_session_map_request(pcp_session_t *session,
  * The request is due immediately, so the application should poll the session
  * afterwards, see pcp_session_poll.
  *
- * @returns The handle on success or an error otherwise, e.g. EMSGSIZE if the
- *          options don't fit into a packet
+ * @returns The handle, or an error (EMSGSIZE if the options don't fit in a
+ *          packet)
  */
 pcp_handle_or_error_t
 pcp_session_peer_request(pcp_session_t *session,
@@ -169,16 +164,14 @@ pcp_session_peer_request(pcp_session_t *session,
 /**
  * @brief Release a mapping the application no longer needs
  *
- * For a MAP mapping the server may still hold, the session asks the server to
- * delete it, so the application should poll the session afterwards. PEER
- * mappings can't be deleted and expire at the end of their lease (RFC 6887
- * §12, §15).
+ * MAP mappings get a delete request, so poll afterwards. PEER mappings can't be
+ * deleted and just expire.
  *
- * The handle is invalid once this returns, and no further events refer to it.
+ * The handle is invalid after this and no more events will refer to it.
  *
  * @param[in] session The session that owns the mapping
- * @param[in] handle  The mapping to release, nothing happens if it was already
- *                    released or failed
+ * @param[in] handle  The mapping to release. Ignored if it was already
+ *                    released or failed.
  */
 void pcp_session_release(pcp_session_t *session, pcp_handle_t handle);
 
@@ -202,24 +195,23 @@ typedef enum pcp_result : uint8_t {
 } pcp_result_t;
 
 /**
- * Something the application has to act on, see pcp_session_poll
+ * Something the application has to handle, see pcp_session_poll
  *
- * For each handle, the external address from PCP_EVENT_MAPPED stays valid until
- * the next PCP_EVENT_UNMAPPED or PCP_EVENT_FAILED.
+ * The address from PCP_EVENT_MAPPED is valid until the next PCP_EVENT_UNMAPPED
+ * or PCP_EVENT_FAILED for the same handle.
  */
 typedef struct pcp_event {
   enum {
     /// Send the request described by `send`
     PCP_EVENT_SEND,
-    /// The mapping's external address is now `mapped.external`. Can happen
-    /// again without PCP_EVENT_UNMAPPED in between if the address changes
+    /// The mapping is reachable at `mapped.external`. Sent again if the
+    /// address changes.
     PCP_EVENT_MAPPED,
-    /// The mapping has no valid external address anymore. The session keeps
-    /// requesting it, so PCP_EVENT_MAPPED follows once that succeeds
+    /// The mapping was lost. It gets requested again and PCP_EVENT_MAPPED
+    /// follows once that works.
     PCP_EVENT_UNMAPPED,
-    /// The server refused the mapping and the session gave up on it. This is
-    /// the last event for the handle, which is invalid afterwards (releasing
-    /// it does nothing)
+    /// The server refused the mapping. This is the last event for the handle,
+    /// which is invalid afterwards.
     PCP_EVENT_FAILED,
     /// Nothing more to do before `timeout.deadline`, see pcp_session_poll
     PCP_EVENT_TIMEOUT,
@@ -229,11 +221,8 @@ typedef struct pcp_event {
      * The request to send to the server
      *
      * `data` points into the buffer from pcp_config_t and is only valid until
-     * the next call to pcp_session_poll, which may write the next request into
-     * the same buffer. The application should send it before polling again. To
-     * send it later (e.g. retrying after send() failed with EAGAIN), copy it
-     * first. Otherwise just drop it: the session already scheduled a
-     * retransmission when it returned this event.
+     * the next poll. Copy it if you want to send it later. If sending fails,
+     * it's fine to just drop it, the retransmission is already scheduled.
      */
     struct {
       size_t size;
@@ -251,8 +240,8 @@ typedef struct pcp_event {
       pcp_result_t result;
     } failed;
     struct {
-      /// Always in the future of the `now` passed to pcp_session_poll. Empty if
-      /// nothing is scheduled, i.e. the application can wait indefinitely
+      /// Always later than `now`. Empty if nothing is scheduled, in which case
+      /// just wait for the next datagram.
       pcp_optional_time_ms_t deadline;
     } timeout;
   };
@@ -261,13 +250,11 @@ typedef struct pcp_event {
 /**
  * @brief Advance the session and get the next event
  *
- * This drives the session. Call it until it returns PCP_EVENT_TIMEOUT whenever
- * the application wakes up: when a datagram arrived, the previous deadline
- * passed, or a request was made. Then wait until `timeout.deadline` (or a
- * datagram arrives) before polling again.
+ * Call this until it returns PCP_EVENT_TIMEOUT whenever something happens: a
+ * datagram arrived, the deadline passed or a request was made. Then wait until
+ * `timeout.deadline` or the next datagram.
  *
- * Each event is only returned once. Polling invalidates the data of the
- * previous event, see pcp_event_t::send.
+ * Every call invalidates the previous event's data (see pcp_event_t::send).
  *
  * @param[in] session The session to advance
  * @param[in] now     The current time

@@ -741,7 +741,7 @@ static void assert_sent_delete() {
                             (uint32_t)send_buffer[6] << 8 | send_buffer[7];
   TEST_ASSERT_EQUAL_UINT32(0, lifetime);
 
-  // RFC 6887 §15: without a suggested external address
+  // and no suggested address
   auto const suggestion = suggested();
   uint8_t const zero[16] = {0};
   TEST_ASSERT_EQUAL_UINT8_ARRAY(zero, suggestion.ip.addr, 16);
@@ -839,7 +839,7 @@ static void test_session_release_peer_not_deleted() {
   TEST_ASSERT_TRUE(handle.has_value);
   establish(handle.value, 0);
 
-  // RFC 6887 §12: PEER mappings can only expire
+  // PEER mappings can't be deleted
   pcp_session_release(session, handle.value);
   assert_idle(1'000);
   end();

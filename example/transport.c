@@ -42,8 +42,8 @@ static volatile sig_atomic_t running = 1;
 static void on_signal(int /*signal*/) { running = 0; }
 
 static struct sockaddr_in6 to_sockaddr_in6(socket_address_t const *address) {
-  // ip_address_t already stores IPv4 as v4-mapped IPv6, which is exactly what a
-  // dual-stack AF_INET6 socket expects
+  // ip_address_t stores IPv4 as v4-mapped, which is what a dual-stack socket
+  // wants
   struct sockaddr_in6 result = {0};
   result.sin6_family = AF_INET6;
   result.sin6_port = htons(address->port);
@@ -68,9 +68,8 @@ socket_address_t transport_init(socket_address_t server) {
     exit(EXIT_FAILURE);
   }
 
-  // connecting makes the kernel pick the source address we'll use towards the
-  // server (which is what PCP's client address field must contain) and drops
-  // datagrams from anyone else
+  // connect() picks our source address (needed for the PCP client address
+  // field) and filters out datagrams from anyone else
   struct sockaddr_in6 addr = to_sockaddr_in6(&server);
   if (-1 == connect(client, (struct sockaddr *)&addr, sizeof(addr))) {
     perror("connect");
@@ -106,10 +105,10 @@ void transport_close() {
 }
 
 void transport_loop(pcp_session_t *session, bool until_idle) {
-  // outgoing packets live in the session's buffer, see main()
+  // outgoing packets use the session's buffer (see main)
   uint8_t incoming[PCP_PACKET_MAX_SIZE];
 
-  // each loop runs until its own signal
+  // every loop needs its own signal to stop
   running = 1;
   while (running) {
     // poll until the session tells us how long to wait
@@ -120,8 +119,7 @@ void transport_loop(pcp_session_t *session, bool until_idle) {
       case PCP_EVENT_SEND: {
         auto const sent = transport_send(event.send.size, event.send.data);
         if (!sent.has_value) {
-          // includes EAGAIN: rather than waiting for the socket to become
-          // writable, we let the session's retransmission take care of it
+          // EAGAIN too, the retransmission will cover it
           fprintf(stderr, "send: %s\n", strerror(sent.error));
         }
         break;
@@ -181,8 +179,8 @@ void transport_loop(pcp_session_t *session, bool until_idle) {
           auto const size = transport_recv(sizeof(incoming), incoming);
           if (!size.has_value) {
             if (size.error != EAGAIN && size.error != EWOULDBLOCK) {
-              // e.g. ECONNREFUSED when nothing listens on the server port. The
-              // session's retransmission timer takes care of retrying
+              // e.g. ECONNREFUSED if nothing is listening, the
+              // retransmissions keep trying
               fprintf(stderr, "recv: %s\n", strerror(size.error));
             }
             break;

@@ -3,10 +3,10 @@
 #include <assert.h>
 #include <stdint.h>
 
-// RFC 6887 §11.2.1: renewal requests MUST NOT be sent less than 4s apart
+// minimum gap between renewals (RFC 6887 section 11.2.1)
 static constexpr pcp_time_ms_t PCP_RENEWAL_MIN_INTERVAL = 4'000;
 
-// a uniformly distributed random value, or nothing if the RNG fails
+// returns false if the RNG failed
 static bool random16(pcp_rng_t rng, uint16_t *out) {
   return rng.fill(rng.ctx, sizeof(*out), (uint8_t *)out);
 }
@@ -29,15 +29,14 @@ static pcp_time_ms_t pcp_schedule_expiry(pcp_schedule_t const *schedule) {
   return schedule->renewal.granted + schedule->renewal.lifetime;
 }
 
-// When renewal `attempt` (counting from 0) is due: at 1 - 1/2^(attempt + 1) of
-// the lifetime plus a random part of a window 1/2^(attempt + 3) wide, i.e. 1/2
-// to 5/8, 3/4 to 3/4 + 1/16, 7/8 to 7/8 + 1/32 and so on
+// Renewal n (from 0) happens at 1 - 1/2^(n+1) of the lifetime plus a random
+// part of a window 1/2^(n+3) wide: 1/2..5/8, 3/4..13/16, 7/8..29/32, ...
 static pcp_time_ms_t pcp_schedule_renewal_time(pcp_schedule_t const *schedule,
                                                uint32_t attempt,
                                                pcp_rng_t rng) {
   auto const lifetime = schedule->renewal.lifetime;
 
-  // the window has shrunk to nothing long before this, so only expiry is left
+  // the window is long gone by now
   if (attempt + 3 >= 64) {
     return pcp_schedule_expiry(schedule);
   }
@@ -46,7 +45,7 @@ static pcp_time_ms_t pcp_schedule_renewal_time(pcp_schedule_t const *schedule,
   auto const width = lifetime >> (attempt + 3);
   uint16_t random = 0;
   if (!random16(rng, &random)) {
-    random = 0; // the start of the window
+    random = 0; // start of the window
   }
   auto const offset = width * random / UINT16_MAX;
   return schedule->renewal.granted + start + offset;
@@ -83,7 +82,7 @@ static bool pcp_schedule_mrc_reached(pcp_schedule_t const *schedule) {
          schedule->count >= schedule->backoff.params.mrc;
 }
 
-// the earliest point at which the schedule runs out, if it ever does
+// when the schedule runs out, if ever
 static pcp_optional_time_ms_t
 pcp_schedule_limit(pcp_schedule_t const *schedule) {
   switch (schedule->type) {
@@ -135,8 +134,8 @@ pcp_schedule_status_t pcp_schedule_poll(pcp_schedule_t const *schedule,
   }
 }
 
-// RAND from RFC 6887 §8.1.1 in per mille, uniformly within [-100, 100], or 0
-// if the RNG fails. The modulo bias (< 0.5%) is irrelevant for jitter
+// RAND from RFC 6887 section 8.1.1 in per mille (-100 to 100), 0 if the RNG
+// fails. The modulo bias doesn't matter here.
 static int32_t jitter(pcp_rng_t rng) {
   constexpr int32_t max = 100;
   uint16_t random = 0;
@@ -176,7 +175,7 @@ static void pcp_schedule_advance_backoff(pcp_schedule_t *schedule,
 static void pcp_schedule_advance_renewal(pcp_schedule_t *schedule,
                                          pcp_time_ms_t now,
                                          pcp_rng_t rng) {
-  // `count` is about to include this transmission, so it's the next attempt
+  // count doesn't include this transmission yet
   auto const next =
       pcp_schedule_renewal_time(schedule, schedule->count + 1, rng);
   auto const earliest = now + PCP_RENEWAL_MIN_INTERVAL;

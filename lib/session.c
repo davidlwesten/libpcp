@@ -4,7 +4,7 @@
 #include "wire.h"
 
 #include <assert.h>
-#include <malloc.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define ALLOC(allocator, ...) (allocator.alloc(allocator.ctx, __VA_ARGS__))
@@ -53,7 +53,7 @@ pcp_session_deadline(pcp_session_t const *session) {
   return earliest;
 }
 
-// frees the mappings the application released that have nothing left to do
+// free the mappings that are done
 static void pcp_session_free_released(pcp_session_t *session) {
   auto link = &session->mappings;
   while (*link) {
@@ -77,10 +77,10 @@ pcp_event_t pcp_session_poll(pcp_session_t *session, pcp_time_ms_t now) {
     }
   }
 
-  // released mappings are done for good once every mapping is up to date
+  // everything is up to date now, so released mappings can go
   pcp_session_free_released(session);
 
-  // every mapping is up to date with `now`, so all deadlines lie in the future
+  // all mappings are up to date, so every deadline is in the future
   return (pcp_event_t){
       .type = PCP_EVENT_TIMEOUT,
       .timeout =
@@ -127,7 +127,7 @@ pcp_session_request(pcp_session_t *session,
                     pcp_option_t const options[count]) {
   assert(session);
 
-  // the request has to fit into a packet, whatever the server thinks of it
+  // has to fit in a single packet
   if (pcp_packet_request_size(&request, count, options) > PCP_PACKET_MAX_SIZE) {
     return (pcp_handle_or_error_t){
         .has_value = false,
@@ -154,7 +154,7 @@ pcp_session_request(pcp_session_t *session,
     };
   }
 
-  // starting from 1, so a zero-initialised handle never refers to a mapping
+  // starts at 1 so 0 is never a valid handle
   auto const handle = ++session->handles;
   pcp_mapping_init(mapping, handle, request, nonce, count, options);
   pcp_session_add_mapping(session, mapping);
@@ -165,8 +165,8 @@ pcp_session_request(pcp_session_t *session,
   };
 }
 
-// no preference for the external address, other than it being in the client's
-// own address family since the server assigns one of the suggested family
+// Suggest "any" address, but in the client's own family since the server picks
+// one from the suggested family
 static socket_address_t pcp_session_any_external(pcp_session_t const *session) {
   return (socket_address_t){
       .ip = ip_address_is_ipv4_mapped(&session->config.local)
@@ -184,6 +184,8 @@ pcp_session_map_request(pcp_session_t *session,
                         size_t count,
                         pcp_option_t const options[count]) {
   assert(session);
+  // lifetime 0 means delete
+  assert(lifetime > 0);
   return pcp_session_request(
       session,
       (pcp_request_t){
@@ -208,6 +210,8 @@ pcp_session_peer_request(pcp_session_t *session,
                          size_t count,
                          pcp_option_t const options[count]) {
   assert(session);
+  // lifetime 0 means delete
+  assert(lifetime > 0);
   return pcp_session_request(
       session,
       (pcp_request_t){
@@ -224,7 +228,7 @@ pcp_session_peer_request(pcp_session_t *session,
       count, options);
 }
 
-// the mapping `handle` refers to, unless the application already released it
+// look up a mapping the application still owns
 static pcp_mapping_t *pcp_session_find(pcp_session_t const *session,
                                        pcp_handle_t handle) {
   for (auto iter = session->mappings; iter; iter = iter->next) {
@@ -252,7 +256,7 @@ void pcp_session_release(pcp_session_t *session, pcp_handle_t handle) {
     return;
   }
 
-  // freed by pcp_session_poll once it's RELEASED, which may take a few requests
+  // the session frees it once it's RELEASED
   pcp_mapping_release(mapping);
 }
 
@@ -270,9 +274,9 @@ void pcp_session_on_datagram(pcp_session_t *session,
   }
 
   if (!pcp_epoch_update(&session->epoch, now, response.epoch)) {
-    // RFC 6887 §8.5 asks to request every mapping again straight away, but an
-    // ANNOUNCE reaches many clients at once so §14.1.3 asks to wait a random
-    // time of up to 5s first (or not at all if the RNG fails)
+    // The server lost its state, so request everything again. After an
+    // ANNOUNCE wait a random 0-5s first because every client on the network got
+    // it at the same time (RFC 6887 section 14.1.3).
     pcp_time_ms_t not_before = 0;
     if (response.type == ANNOUNCE) {
       auto const rng = session->config.rng;
@@ -286,12 +290,11 @@ void pcp_session_on_datagram(pcp_session_t *session,
       pcp_mapping_reset(iter, not_before);
     }
 
-    // the response may just as well be a stale one from before a restart, and
-    // every mapping is requested again anyway, so don't act on it
+    // don't trust the rest of the response, it could be stale
     return;
   }
 
-  // an ANNOUNCE only tells us about the epoch
+  // ANNOUNCE only carries the epoch
   if (response.type == ANNOUNCE) {
     return;
   }

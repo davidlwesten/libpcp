@@ -16,15 +16,15 @@ typedef struct pcp_mapping_lease {
   pcp_time_ms_t lifetime;
 } pcp_mapping_lease_t;
 
-// Only changed by the pcp_mapping_enter_* functions in mapping.c, which replace
-// it as a whole so no state inherits another state's data
+// Only set by the pcp_mapping_enter_* functions, which overwrite all of it so
+// nothing carries over from one state to the next
 typedef struct pcp_mapping_state {
   enum {
     PENDING,
     ACTIVE,
-    FAILED,    // refused, PCP_EVENT_FAILED is yet to be emitted
-    RELEASING, // released by the application, asking the server to delete it
-    RELEASED,  // nothing left to do, for the session to free
+    FAILED,    // refused, FAILED event not sent yet
+    RELEASING, // released, sending the delete request
+    RELEASED,  // done, waiting to be freed
   } type;
   union {
     struct {
@@ -49,9 +49,8 @@ typedef struct pcp_mapping {
   pcp_request_t request;
   pcp_nonce_t nonce;
   pcp_mapping_state_t state;
-  // The external address from the last PCP_EVENT_MAPPED, until a
-  // PCP_EVENT_UNMAPPED follows. Only pcp_mapping_report uses it, to work out
-  // which event the application is owed next
+  // Address from the last MAPPED event, cleared by UNMAPPED. Only used by
+  // pcp_mapping_report() to figure out which event to send next.
   optional_socket_address_t last_mapped;
   size_t count;
   pcp_option_t options[];
@@ -70,8 +69,7 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
                       pcp_option_t const options[count]);
 
 /**
- * @brief Handle a response from the server, ignoring it unless it belongs to
- *        the mapping
+ * @brief Handle a server response. Responses for other mappings are ignored.
  */
 void pcp_mapping_on_response(pcp_mapping_t *mapping,
                              pcp_response_t const *response,
@@ -86,19 +84,18 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
 void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before);
 
 /**
- * @brief Give the mapping up on behalf of the application
+ * @brief Release the mapping
  *
- * No further events refer to the mapping. It's RELEASED once nothing is left to
- * do for it, possibly straight away.
+ * No more events are reported for it. It becomes RELEASED once the delete is
+ * done, or right away if there's nothing to delete.
  */
 void pcp_mapping_release(pcp_mapping_t *mapping);
 
 /**
  * @brief Bring the mapping up to date with `now`
  *
- * In this order: applies what time decided (e.g. an expired lease), then
- * tells the application about any change it hasn't heard about, then sends a
- * request that's due. Call it until it returns false.
+ * Handles timeouts first (like an expired lease), then reports changes to the
+ * application, then sends whatever is due. Call until it returns false.
  *
  * @param[out] out The event for the application, if any
  *

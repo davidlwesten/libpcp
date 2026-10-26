@@ -14,9 +14,8 @@ static bool pcp_epoch_valid(pcp_epoch_t const *epoch,
     return false;
   }
 
-  // both clocks must have advanced by about the same amount, allowing for 2s of
-  // slack and 1/16 of drift. Compared in milliseconds since that's what we have
-  // for the client
+  // both clocks should have moved by roughly the same amount, give or take 2s
+  // and 1/16 of drift
   constexpr int64_t slack = 2'000;
   auto const client_delta = (int64_t)(now - epoch->client);
   auto const server_delta = ((int64_t)server - (int64_t)epoch->server) * 1'000;

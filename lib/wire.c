@@ -10,7 +10,7 @@
 static constexpr size_t PCP_PACKET_HEADER_SIZE = 24;
 static constexpr size_t PCP_OPTION_HEADER_SIZE = 4;
 
-// requests and responses of the same opcode share their size
+// requests and responses have the same size
 static constexpr size_t PCP_MESSAGE_SIZE[] = {
     [ANNOUNCE] = PCP_PACKET_HEADER_SIZE + 0,
     [MAP] = PCP_PACKET_HEADER_SIZE + 36,
@@ -94,7 +94,7 @@ static void pcp_packet_write_peer_request(view_t dst,
   pcp_packet_body_write_ip_address(dst, 40, &src->peer.peer.ip);
 }
 
-// the length of the option's data, without its header (RFC 6887 §7.3)
+// length of the option data, not counting the 4-byte header
 static uint16_t pcp_option_length(pcp_option_t const *option) {
   switch (option->type) {
   case THIRD_PARTY:
@@ -104,11 +104,9 @@ static uint16_t pcp_option_length(pcp_option_t const *option) {
   }
 }
 
-// A request deleting the mapping (lifetime 0) leaves out FILTER, which RFC 6887
-// §13.3 forbids there, but keeps THIRD_PARTY: it names the mapping's internal
-// address (§11.1), and without it the server would look for a mapping of the
-// client's own address and report the deletion of a mapping that doesn't exist
-// as SUCCESS (§15.1)
+// Deletes (lifetime 0) can't carry FILTER. THIRD_PARTY has to stay though:
+// without it the server looks for a mapping on our own address, doesn't find
+// one and still answers SUCCESS.
 static bool pcp_option_included(pcp_request_t const *request,
                                 pcp_option_t const *option) {
   return option->type != FILTER || request->lifetime > 0;
@@ -134,7 +132,7 @@ size_t pcp_packet_request_size(pcp_request_t const *request,
   return size;
 }
 
-// returns the cursor behind the option
+// returns the offset after the option
 static size_t
 pcp_packet_write_option(view_t dst, size_t cursor, pcp_option_t const *option) {
   auto const length = pcp_option_length(option);
@@ -172,7 +170,7 @@ size_t pcp_packet_write_request(view_t dst,
   auto const size = pcp_packet_request_size(src, count, options);
   assert(dst.size >= size);
 
-  // takes care of every reserved field, so the writers can skip them
+  // zero everything so reserved fields don't need writing
   memset(dst.data, 0, size);
 
   switch (src->type) {
@@ -260,7 +258,7 @@ bool pcp_packet_read_response(const_view_t src, pcp_response_t *out) {
   assert(src.data);
   assert(out);
 
-  // RFC 6887 §8.3: anything else must be silently ignored
+  // silently drop anything malformed (RFC 6887 section 8.3)
   if (src.size < PCP_PACKET_HEADER_SIZE || src.size > PCP_PACKET_MAX_SIZE ||
       src.size % 4 != 0) {
     return false;
@@ -270,10 +268,8 @@ bool pcp_packet_read_response(const_view_t src, pcp_response_t *out) {
     return false;
   }
 
-  // ANNOUNCE responses tell us about the server's epoch, and only opcodes we
-  // send requests for can have a matching response. This also rejects error
-  // responses the server couldn't attach a body (and therefore a nonce) to,
-  // which couldn't be matched to a mapping anyway
+  // only ANNOUNCE and responses to our own MAP/PEER requests matter. Errors
+  // without a body can't be matched to a mapping anyway.
   auto const opcode = (pcp_opcode_t)(src.data[1] & ~PCP_RESPONSE_BIT);
   if ((opcode != ANNOUNCE && opcode != MAP && opcode != PEER) ||
       src.size < PCP_MESSAGE_SIZE[opcode]) {

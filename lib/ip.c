@@ -7,11 +7,8 @@
 #include <string.h>
 
 #include <arpa/inet.h>
-#include <netdb.h>
 
 constexpr char IPV4_MAPPED_PREFIX[] = "\0\0\0\0\0\0\0\0\0\0\xFF\xFF";
-
-static size_t min(size_t a, size_t b) { return a < b ? a : b; }
 
 bool ip_address_is_ipv4_mapped(const ip_address_t *ip) {
   assert(ip);
@@ -135,10 +132,6 @@ ip_network_t ip_network_from_address(ip_address_t address, uint8_t prefix) {
   };
 }
 
-int ip_adddress_cmp(ip_address_t const *lhs, ip_address_t const *rhs) {
-  return memcmp(lhs, rhs, sizeof(ip_address_t));
-}
-
 socket_address_t
 socket_address_from_sockaddr_in(const struct sockaddr_in *addr) {
   return (socket_address_t){.ip = ip_address_from_in_addr(&addr->sin_addr),
@@ -151,108 +144,86 @@ socket_address_from_sockaddr_in6(const struct sockaddr_in6 *addr) {
                             .port = ntohs(addr->sin6_port)};
 }
 
-static bool extract_node_and_service(const char *src,
-                                     char node[INET6_ADDRSTRLEN],
-                                     char service[6]) {
-  assert(src);
-  assert(strlen(src) >= 3);
+// Parses the first `length` chars of `src` as an AF_INET or AF_INET6 address
+static bool parse_ip_address(int family,
+                             const char *src,
+                             size_t length,
+                             ip_address_t *out) {
+  char node[INET6_ADDRSTRLEN] = {0};
+  if (length == 0 || length >= sizeof(node)) {
+    return false;
+  }
+  memcpy(node, src, length);
 
-  const char *begin = nullptr;
-  const char *end = nullptr;
-
-  switch (src[0]) {
-  case '[':
-    begin = src + 1;
-    end = strrchr(begin, ']');
-    if (!end) {
+  if (family == AF_INET) {
+    struct in_addr ipv4 = {0};
+    if (1 != inet_pton(AF_INET, node, &ipv4)) {
       return false;
     }
-    break;
-  case '0':
-  case '1':
-  case '2':
-  case '3':
-  case '4':
-  case '5':
-  case '6':
-  case '7':
-  case '8':
-  case '9':
-    begin = src;
-    end = strrchr(begin, ':');
-    if (!end) {
+    *out = ip_address_from_in_addr(&ipv4);
+  } else {
+    struct in6_addr ipv6 = {0};
+    if (1 != inet_pton(AF_INET6, node, &ipv6)) {
       return false;
     }
-    break;
-  default:
+    *out = ip_address_from_in6_addr(&ipv6);
+  }
+  return true;
+}
+
+// Parses `src` as a port number, nothing else allowed
+static bool parse_port(const char *src, port_t *out) {
+  auto const length = strlen(src);
+  if (length == 0 || length > 5) {
     return false;
   }
 
-  assert(end > begin);
-  const size_t ip_length = (size_t)(end - begin);
-  strncpy(node, begin, min(ip_length, INET6_ADDRSTRLEN));
-
-  begin = strchr(end, ':');
-  if (!begin) {
-    return false;
+  uint32_t value = 0;
+  for (size_t i = 0; i < length; ++i) {
+    if (src[i] < '0' || src[i] > '9') {
+      return false;
+    }
+    value = value * 10 + (uint32_t)(src[i] - '0');
   }
 
-  begin = begin + 1;
-  end = strchr(begin, '\0');
-
-  assert(end > begin);
-  const size_t port_length = (size_t)(end - begin);
-  strncpy(service, begin, min(port_length, 6));
-
+  if (value > UINT16_MAX) {
+    return false;
+  }
+  *out = (port_t)value;
   return true;
 }
 
 optional_socket_address_t socket_address_from_string(const char *address) {
-  if (!address || strlen(address) < 3) {
-    return (optional_socket_address_t){
-        .has_value = false,
-        .value = {},
-    };
+  constexpr optional_socket_address_t none = {.has_value = false, .value = {}};
+  if (!address) {
+    return none;
   }
 
-  char node[INET6_ADDRSTRLEN + 1] = {0};
-  char service[7] = {0};
-  if (!extract_node_and_service(address, node, service)) {
-    return (optional_socket_address_t){
-        .has_value = false,
-        .value = {},
-    };
+  // either [ipv6]:port or ipv4:port
+  socket_address_t result = {};
+  char const *separator = nullptr;
+  if (address[0] == '[') {
+    auto const close = strchr(address, ']');
+    if (!close || close[1] != ':' ||
+        !parse_ip_address(AF_INET6, address + 1, (size_t)(close - address - 1),
+                          &result.ip)) {
+      return none;
+    }
+    separator = close + 1;
+  } else {
+    separator = strchr(address, ':');
+    if (!separator ||
+        !parse_ip_address(AF_INET, address, (size_t)(separator - address),
+                          &result.ip)) {
+      return none;
+    }
   }
 
-  struct addrinfo hints = {0};
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
-  hints.ai_socktype = SOCK_DGRAM;
-  struct addrinfo *result = nullptr;
-  if (0 != getaddrinfo(node, service, &hints, &result)) {
-    return (optional_socket_address_t){
-        .has_value = false,
-        .value = {},
-    };
+  if (!parse_port(separator + 1, &result.port)) {
+    return none;
   }
 
-  // create a local copy to avoid alignment differences between sockaddr (2) and
-  // sockaddr_in/sockaddr_in6 (4)
-  struct sockaddr_storage local = {0};
-  memcpy(&local, result->ai_addr, result->ai_addrlen);
-
-  auto const socket_address =
-      result->ai_family == AF_INET
-          ? socket_address_from_sockaddr_in((const struct sockaddr_in *)&local)
-          : socket_address_from_sockaddr_in6(
-                (const struct sockaddr_in6 *)&local);
-
-  freeaddrinfo(result);
-
-  return (optional_socket_address_t){
-      .has_value = true,
-      .value = socket_address,
-  };
+  return (optional_socket_address_t){.has_value = true, .value = result};
 }
 
 static struct size_or_error

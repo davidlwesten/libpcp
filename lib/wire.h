@@ -19,14 +19,14 @@ typedef struct pcp_request pcp_request_t;
 typedef struct pcp_response pcp_response_t;
 
 /**
- * @brief The size of the request pcp_packet_write_request would write
+ * @brief Size of the request pcp_packet_write_request() would write
  */
 size_t pcp_packet_request_size(pcp_request_t const *request,
                                size_t count,
                                pcp_option_t const options[count]);
 
 /**
- * @brief Write a request, including the options valid for it
+ * @brief Write a request and its options
  *
  * @returns The size of the request
  */
@@ -40,8 +40,8 @@ size_t pcp_packet_write_request(view_t dst,
 /**
  * @brief Parse a response received from the server
  *
- * Only checks that `src` is a well-formed MAP or PEER response, not what its
- * result code means. Options are skipped.
+ * Only checks the format of ANNOUNCE, MAP and PEER responses, not the result
+ * code. Options are skipped.
  *
  * @param[in]  src The received datagram
  * @param[out] out The parsed response

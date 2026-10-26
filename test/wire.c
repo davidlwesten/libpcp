@@ -204,8 +204,7 @@ static void test_wire_delete_request_without_filters() {
   request.lifetime = 0;
   pcp_option_t const options[] = {filter, third_party};
 
-  // RFC 6887 §13.3: FILTER is invalid when deleting, THIRD_PARTY still says
-  // whose mapping it is
+  // no FILTER in deletes, but THIRD_PARTY stays
   uint8_t buffer[PCP_PACKET_MAX_SIZE];
   TEST_ASSERT_EQUAL_size_t(80,
                            write_request_with(&request, 2, options, buffer));

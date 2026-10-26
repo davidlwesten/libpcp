@@ -8,12 +8,12 @@ static pcp_time_ms_t pcp_seconds(pcp_time_s_t seconds) {
   return (pcp_time_ms_t)seconds * 1'000;
 }
 
-// Entering a state replaces `mapping->state` as a whole, so every field the
-// enter function doesn't set is zeroed rather than left over from before
+// The enter functions overwrite the whole state, so nothing carries over from
+// the previous one
 
 static void pcp_mapping_enter_pending(pcp_mapping_t *mapping,
                                       pcp_time_ms_t not_before) {
-  // also used to restart an already PENDING mapping's schedule
+  // also restarts the schedule of a PENDING mapping
   assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
   mapping->state = (pcp_mapping_state_t){.type = PENDING};
   pcp_schedule_backoff(&mapping->state.pending.schedule, PCP_BACKOFF_DEFAULT,
@@ -43,8 +43,8 @@ static void pcp_mapping_enter_failed(pcp_mapping_t *mapping,
 }
 
 static void pcp_mapping_enter_releasing(pcp_mapping_t *mapping) {
-  // RFC 6887 §15: only MAP mappings can be deleted, by requesting them with a
-  // lifetime of 0 and no suggested external address
+  // a delete is the same request with lifetime 0 and no suggested address.
+  // Only MAP mappings can be deleted.
   assert(mapping->request.type == MAP);
   assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
 
@@ -86,7 +86,7 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
   pcp_mapping_enter_pending(mapping, 0);
 }
 
-// RFC 6887 §11.4 and §12.4
+// how responses are matched to requests (RFC 6887 sections 11.4 and 12.4)
 static bool pcp_mapping_matches_body(pcp_mapping_t const *mapping,
                                      pcp_nonce_t const *nonce,
                                      pcp_protocol_t protocol,
@@ -116,8 +116,7 @@ static bool pcp_mapping_matches(pcp_mapping_t const *mapping,
   }
 }
 
-// later requests for the mapping (renewals, or requesting it again after it was
-// lost) ask the server to keep what it granted
+// ask for the same address again in renewals and re-requests
 static void pcp_mapping_suggest(pcp_mapping_t *mapping,
                                 socket_address_t external) {
   switch (mapping->request.type) {
@@ -133,8 +132,7 @@ static void pcp_mapping_suggest(pcp_mapping_t *mapping,
   }
 }
 
-// RFC 6887 §7.4: errors the server expects to go away by themselves, with the
-// lifetime saying when to try again
+// errors worth retrying later, the lifetime says when
 static bool pcp_result_is_temporary(pcp_result_t result) {
   switch (result) {
   case NETWORK_FAILURE:
@@ -171,8 +169,7 @@ static void pcp_mapping_on_temporary_error(pcp_mapping_t *mapping,
     pcp_mapping_enter_pending(mapping, not_before);
     break;
   case ACTIVE:
-    // the lease is still valid, so keep it and renew later. If that's past its
-    // expiry, the mapping is lost then
+    // the lease is still good, just renew later (it may expire first)
     pcp_schedule_defer(&mapping->state.active.schedule, not_before);
     break;
   case FAILED:
@@ -190,7 +187,7 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
   assert(response);
   assert(response->type == MAP || response->type == PEER);
 
-  // only these send requests, so only they can be waiting for a response
+  // only these are waiting for responses
   switch (mapping->state.type) {
   case PENDING:
   case ACTIVE:
@@ -205,8 +202,8 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
     return;
   }
 
-  // whatever the result there's nothing more to do: after an error the server
-  // asks not to repeat the request, so the lease just runs out
+  // done either way. After an error we're not supposed to retry, so the lease
+  // just runs out.
   if (mapping->state.type == RELEASING) {
     pcp_mapping_enter_released(mapping);
     return;
@@ -224,15 +221,14 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
 void pcp_mapping_reset(pcp_mapping_t *mapping, pcp_time_ms_t not_before) {
   assert(mapping);
 
-  // RFC 6887 §8.5: the mapping is gone (or about to be), so request it again
-  // rather than continuing any backoff
+  // the server lost its state, start over
   switch (mapping->state.type) {
   case PENDING:
   case ACTIVE:
     pcp_mapping_enter_pending(mapping, not_before);
     break;
   case RELEASING:
-    // the server already forgot what we're asking it to delete
+    // nothing left to delete
     pcp_mapping_enter_released(mapping);
     break;
   case FAILED:
@@ -245,7 +241,7 @@ void pcp_mapping_release(pcp_mapping_t *mapping) {
   assert(mapping);
   assert(mapping->state.type != RELEASING && mapping->state.type != RELEASED);
 
-  // RFC 6887 §12: PEER mappings can't be deleted, only left to expire
+  // PEER mappings can't be deleted, they just expire
   if (mapping->request.type == PEER) {
     pcp_mapping_enter_released(mapping);
     return;
@@ -253,8 +249,7 @@ void pcp_mapping_release(pcp_mapping_t *mapping) {
 
   switch (mapping->state.type) {
   case PENDING:
-    // the server may have granted a request even if its response hasn't
-    // arrived, but not one that was never sent
+    // if anything was sent, the server might have created it
     if (mapping->state.pending.schedule.count > 0) {
       pcp_mapping_enter_releasing(mapping);
     } else {
@@ -265,8 +260,7 @@ void pcp_mapping_release(pcp_mapping_t *mapping) {
     pcp_mapping_enter_releasing(mapping);
     break;
   case FAILED:
-    // refused, so there's nothing the server would still hold, and the
-    // application gave up before hearing about it
+    // refused, so there's nothing to delete
     pcp_mapping_enter_released(mapping);
     break;
   case RELEASING:
@@ -275,7 +269,7 @@ void pcp_mapping_release(pcp_mapping_t *mapping) {
   }
 }
 
-// the schedule of a state that sends requests
+// schedule of the current state, if it has one
 static pcp_schedule_t *pcp_mapping_schedule(pcp_mapping_t *mapping) {
   switch (mapping->state.type) {
   case PENDING:
@@ -293,11 +287,11 @@ static pcp_schedule_t *pcp_mapping_schedule(pcp_mapping_t *mapping) {
 static void pcp_mapping_on_exhausted(pcp_mapping_t *mapping) {
   switch (mapping->state.type) {
   case ACTIVE:
-    // no renewal succeeded before the lease expired, so request it again
+    // the lease expired, start over
     pcp_mapping_enter_pending(mapping, 0);
     break;
   case RELEASING:
-    // the server never answered, so the mapping expires at the end of its lease
+    // no answer, let it expire
     pcp_mapping_enter_released(mapping);
     break;
   case PENDING:
@@ -309,7 +303,7 @@ static void pcp_mapping_on_exhausted(pcp_mapping_t *mapping) {
   }
 }
 
-// tells the application about any change it hasn't heard about
+// report changes the application doesn't know about yet
 static bool pcp_mapping_report(pcp_mapping_t *mapping, pcp_event_t *out) {
   auto const last_mapped = &mapping->last_mapped;
 
@@ -341,7 +335,7 @@ static bool pcp_mapping_report(pcp_mapping_t *mapping, pcp_event_t *out) {
     return true;
   }
   case FAILED: {
-    // the last event for the handle, so the mapping is done with
+    // last event for this handle, the mapping can go
     auto const result = mapping->state.failed.result;
     pcp_mapping_enter_released(mapping);
 
@@ -353,12 +347,12 @@ static bool pcp_mapping_report(pcp_mapping_t *mapping, pcp_event_t *out) {
   }
   case RELEASING:
   case RELEASED:
-    // the application no longer holds the handle
+    // released, so no more events
     return false;
   }
 }
 
-// writes the mapping's request for the application to send
+// write the request into the send buffer
 static bool pcp_mapping_send(pcp_mapping_t *mapping,
                              pcp_schedule_t *schedule,
                              pcp_time_ms_t now,
@@ -369,8 +363,7 @@ static bool pcp_mapping_send(pcp_mapping_t *mapping,
       &mapping->request, &mapping->nonce, &config->local, mapping->count,
       mapping->options);
 
-  // the application sends the request in response to this event, so this is
-  // the transmission as far as the schedule is concerned
+  // counts as sent as soon as the application gets the event
   pcp_schedule_advance(schedule, now, config->rng);
   *out = (pcp_event_t){
       .type = PCP_EVENT_SEND,
@@ -391,13 +384,13 @@ bool pcp_mapping_update(pcp_mapping_t *mapping,
   assert(config);
   assert(out);
 
-  // first whatever the passing of time decided, e.g. that a lease expired
+  // timeouts first
   auto schedule = pcp_mapping_schedule(mapping);
   if (schedule && pcp_schedule_poll(schedule, now) == PCP_SCHEDULE_EXHAUSTED) {
     pcp_mapping_on_exhausted(mapping);
   }
 
-  // then the application learns about any change, before a request goes out
+  // then report changes, before sending anything
   if (pcp_mapping_report(mapping, out)) {
     return true;
   }
@@ -430,8 +423,7 @@ pcp_optional_time_ms_t pcp_mapping_deadline(pcp_mapping_t const *mapping) {
         .value = pcp_schedule_deadline(&mapping->state.releasing.schedule),
     };
   case FAILED:
-    // still owes the application an event, so it's due right away.
-    // pcp_session_poll never leaves it behind, this is just for safety
+    // still has an event to report, poll never leaves it in this state
     return (pcp_optional_time_ms_t){.has_value = true, .value = 0};
   case RELEASED:
     return (pcp_optional_time_ms_t){.has_value = false, .value = 0};

@@ -123,6 +123,49 @@ static void test_ip_network_from_address() {
   TEST_ASSERT_EQUAL_UINT8_ARRAY(v6.addr, network.address.addr, 16);
 }
 
+static void test_socket_address_from_string() {
+  auto result = socket_address_from_string("192.168.1.1:5351");
+  TEST_ASSERT_TRUE(result.has_value);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(ip_address_from_octets(192, 168, 1, 1).addr,
+                                result.value.ip.addr, 16);
+  TEST_ASSERT_EQUAL_UINT16(5351, result.value.port);
+
+  result = socket_address_from_string("[2001:db8::1]:65535");
+  TEST_ASSERT_TRUE(result.has_value);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(
+      ip_address_from_string("2001:db8::1").value.addr, result.value.ip.addr,
+      16);
+  TEST_ASSERT_EQUAL_UINT16(65535, result.value.port);
+}
+
+static void test_socket_address_from_string_rejects_malformed() {
+  char const *const malformed[] = {
+      "",
+      "1.2.3.4",
+      "1.2.3.4:",       // no port
+      ":5351",          // no address
+      "[]:5351",        // no address
+      "[::1]",          // no port
+      "[::1]:",         // no port
+      "[::1]x:5351",    // junk after the address
+      "1.2.3.4:99999",  // port out of range
+      "1.2.3.4:123456", // port too long
+      "1.2.3.4:53x",    // junk after the port
+      "1.2.3.4:-1",
+      "1.2.3.4:5351:1",
+      "2001:db8::1:5351", // IPv6 needs brackets
+      "[1.2.3.4]:5351",   // IPv4 doesn't take brackets
+      "a.b.c.d:5351",
+      "1111111111111111111111111111111111111111111111111.2.3.4:5351",
+  };
+
+  for (size_t i = 0; i < sizeof(malformed) / sizeof(malformed[0]); ++i) {
+    TEST_ASSERT_FALSE_MESSAGE(
+        socket_address_from_string(malformed[i]).has_value, malformed[i]);
+  }
+  TEST_ASSERT_FALSE(socket_address_from_string(nullptr).has_value);
+}
+
 void ip_tests() {
   RUN_TEST(test_ip_address_from_in_addr);
   RUN_TEST(test_ip_address_from_in6_addr);
@@ -132,4 +175,6 @@ void ip_tests() {
   RUN_TEST(test_socket_address_ntop_ipv4);
   RUN_TEST(test_socket_address_ntop_ipv6);
   RUN_TEST(test_ip_network_from_address);
+  RUN_TEST(test_socket_address_from_string);
+  RUN_TEST(test_socket_address_from_string_rejects_malformed);
 }

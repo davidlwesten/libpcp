@@ -4,8 +4,7 @@
 
 #include "nonce.h"
 
-// A response as received from the server, see RFC 6887 §7.2, §11.1 and
-// §12.1. ANNOUNCE responses have no body
+// A parsed response. ANNOUNCE responses are just the header.
 typedef struct pcp_response {
   pcp_opcode_t type;
   pcp_result_t result;

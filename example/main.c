@@ -1,10 +1,12 @@
 #include <pcp/pcp.h>
 
 #include <assert.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/random.h>
 
 #include "pcp/ip.h"
 #include "transport.h"
@@ -60,8 +62,8 @@ int main(int argc, char *argv[]) {
 
   transport_loop(session, false);
 
-  // ask the server to delete the mapping rather than leaving it to expire. That
-  // takes a few retransmissions at most, but don't make the user wait for them
+  // delete the mapping instead of leaving it to expire. A second Ctrl-C skips
+  // waiting for that.
   printf("Releasing mapping %" PRIu64 ", interrupt again to quit right away\n",
          handle.value);
   pcp_session_release(session, handle.value);
@@ -72,39 +74,17 @@ int main(int argc, char *argv[]) {
   return EXIT_SUCCESS;
 }
 
-static uint32_t pcp_rand() {
-  static uint32_t next = 1;
-  return next = next * 1103515245u + 12345u;
-}
-
 static bool pcp_rng(void * /*ctx*/, size_t count, uint8_t bytes[count]) {
-  size_t i = 0;
-  for (; i < count / 4; ++i) {
-    uint32_t const next = pcp_rand();
-    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
-    bytes[i * 4 + 1] = (uint8_t)(next >> 8);
-    bytes[i * 4 + 2] = (uint8_t)(next >> 16);
-    bytes[i * 4 + 3] = (uint8_t)(next >> 24);
+  size_t filled = 0;
+  while (filled < count) {
+    ssize_t const result = getrandom(bytes + filled, count - filled, 0);
+    if (result < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    filled += (size_t)result;
   }
-
-  uint32_t const next = pcp_rand();
-
-  switch (count % 4) {
-  case 3:
-    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
-    bytes[i * 4 + 1] = (uint8_t)(next >> 8);
-    bytes[i * 4 + 2] = (uint8_t)(next >> 16);
-    break;
-  case 2:
-    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
-    bytes[i * 4 + 1] = (uint8_t)(next >> 8);
-    break;
-  case 1:
-    bytes[i * 4 + 0] = (uint8_t)(next >> 0);
-    break;
-  case 0:
-    break;
-  }
-
   return true;
 }
