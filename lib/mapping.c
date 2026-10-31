@@ -1,5 +1,4 @@
 #include "mapping.h"
-#include "wire.h"
 
 #include <assert.h>
 #include <string.h>
@@ -27,7 +26,10 @@ static void pcp_mapping_enter_active(pcp_mapping_t *mapping,
   assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
   mapping->state = (pcp_mapping_state_t){
       .type = ACTIVE,
-      .active = {.lease = lease},
+      .active =
+          {
+              .lease = lease,
+          },
   };
   pcp_schedule_renewal(&mapping->state.active.schedule, lease.granted,
                        lease.lifetime, rng);
@@ -38,18 +40,23 @@ static void pcp_mapping_enter_failed(pcp_mapping_t *mapping,
   assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
   mapping->state = (pcp_mapping_state_t){
       .type = FAILED,
-      .failed = {.result = result},
+      .failed =
+          {
+              .result = result,
+          },
   };
 }
 
 static void pcp_mapping_enter_releasing(pcp_mapping_t *mapping) {
   // a delete is the same request with lifetime 0 and no suggested address.
   // Only MAP mappings can be deleted.
-  assert(mapping->request.type == MAP);
+  assert(mapping->request.opcode == PCP_OPCODE_MAP);
   assert(mapping->state.type == PENDING || mapping->state.type == ACTIVE);
 
   mapping->request.lifetime = 0;
-  mapping->request.map.external = (socket_address_t){0};
+  auto const map = &mapping->request.body.map_body;
+  map->external_port = 0;
+  memset(map->external_ip, 0, sizeof(map->external_ip));
 
   mapping->state = (pcp_mapping_state_t){
       .type = RELEASING,
@@ -67,8 +74,7 @@ static void pcp_mapping_enter_released(pcp_mapping_t *mapping) {
 
 void pcp_mapping_init(pcp_mapping_t *mapping,
                       pcp_handle_t handle,
-                      pcp_request_t request,
-                      pcp_nonce_t nonce,
+                      struct pcp_request request,
                       size_t count,
                       pcp_option_t const options[count]) {
   assert(mapping);
@@ -78,7 +84,6 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
       .next = nullptr,
       .handle = handle,
       .request = request,
-      .nonce = nonce,
       .state =
           {
               .type = PENDING,
@@ -99,51 +104,80 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
 }
 
 // how responses are matched to requests (RFC 6887 sections 11.4 and 12.4)
-static bool pcp_mapping_matches_body(pcp_mapping_t const *mapping,
-                                     pcp_nonce_t const *nonce,
-                                     pcp_protocol_t protocol,
-                                     port_t port) {
-  return (memcmp(nonce->data, mapping->nonce.data, sizeof(nonce->data)) == 0) &&
-         (protocol == mapping->request.protocol) &&
-         (port == mapping->request.port);
-}
-
 static bool pcp_mapping_matches(pcp_mapping_t const *mapping,
-                                pcp_response_t const *response) {
+                                struct pcp_response const *response) {
   auto const request = &mapping->request;
-  if (response->type != request->type) {
+  if (response->opcode != request->opcode) {
     return false;
   }
 
-  switch (response->type) {
-  case MAP:
-    return pcp_mapping_matches_body(mapping, &response->map.nonce,
-                                    response->map.protocol, response->map.port);
-  case PEER:
-    return pcp_mapping_matches_body(mapping, &response->peer.nonce,
-                                    response->peer.protocol,
-                                    response->peer.port) &&
-           socket_address_cmp(&response->peer.peer, &request->peer.peer) == 0;
-  case ANNOUNCE:
+  assert(response->opcode == PCP_OPCODE_MAP ||
+         response->opcode == PCP_OPCODE_PEER ||
+         response->opcode == PCP_OPCODE_ANNOUNCE);
+
+  switch (response->opcode) {
+  case PCP_OPCODE_MAP: {
+    auto const sent = &request->body.map_body;
+    auto const received = &response->body.map_response;
+    return memcmp(received->nonce, sent->nonce, sizeof(sent->nonce)) == 0 &&
+           received->protocol == sent->protocol &&
+           received->internal_port == sent->internal_port;
+  }
+  case PCP_OPCODE_PEER: {
+    auto const sent = &request->body.peer_body;
+    auto const received = &response->body.peer_response;
+    return memcmp(received->nonce, sent->nonce, sizeof(sent->nonce)) == 0 &&
+           received->protocol == sent->protocol &&
+           received->internal_port == sent->internal_port &&
+           received->peer_port == sent->peer_port &&
+           memcmp(received->peer_ip, sent->peer_ip, sizeof(sent->peer_ip)) == 0;
+  }
+  case PCP_OPCODE_ANNOUNCE:
     return false;
   }
   unreachable();
 }
 
-// ask for the same address again in renewals and re-requests
-static void pcp_mapping_suggest(pcp_mapping_t *mapping,
-                                socket_address_t external) {
-  switch (mapping->request.type) {
-  case MAP:
-    mapping->request.map.external = external;
-    break;
-  case PEER:
-    mapping->request.peer.external = external;
-    break;
-  case ANNOUNCE:
-    assert(false && "mappings are never ANNOUNCE requests");
+// copy an address between the request and response, which store it the same
+// way
+static socket_address_t pcp_mapping_copy_address(uint16_t *port,
+                                                 uint8_t ip[16],
+                                                 uint16_t granted_port,
+                                                 uint8_t const granted_ip[16]) {
+  *port = granted_port;
+  memcpy(ip, granted_ip, 16);
+
+  socket_address_t result = {.port = granted_port};
+  memcpy(result.ip.addr, granted_ip, sizeof(result.ip.addr));
+  return result;
+}
+
+// the address the server granted, which renewals and re-requests ask for again
+static socket_address_t
+pcp_mapping_granted(pcp_mapping_t *mapping,
+                    struct pcp_response const *response) {
+  assert(response->opcode == PCP_OPCODE_MAP ||
+         response->opcode == PCP_OPCODE_PEER);
+
+  switch (response->opcode) {
+  case PCP_OPCODE_MAP: {
+    auto const sent = &mapping->request.body.map_body;
+    auto const received = &response->body.map_response;
+    return pcp_mapping_copy_address(&sent->external_port, sent->external_ip,
+                                    received->external_port,
+                                    received->external_ip);
+  }
+  case PCP_OPCODE_PEER: {
+    auto const sent = &mapping->request.body.peer_body;
+    auto const received = &response->body.peer_response;
+    return pcp_mapping_copy_address(&sent->external_port, sent->external_ip,
+                                    received->external_port,
+                                    received->external_ip);
+  }
+  case PCP_OPCODE_ANNOUNCE:
     break;
   }
+  unreachable();
 }
 
 // errors worth retrying later, the lifetime says when
@@ -160,21 +194,19 @@ static bool pcp_result_is_temporary(pcp_result_t result) {
 }
 
 static void pcp_mapping_on_success(pcp_mapping_t *mapping,
-                                   pcp_response_t const *response,
+                                   struct pcp_response const *response,
                                    pcp_time_ms_t now,
                                    pcp_rng_t rng) {
   pcp_mapping_lease_t const lease = {
-      .external = response->type == MAP ? response->map.external
-                                        : response->peer.external,
+      .external = pcp_mapping_granted(mapping, response),
       .granted = now,
       .lifetime = pcp_seconds(response->lifetime),
   };
-  pcp_mapping_suggest(mapping, lease.external);
   pcp_mapping_enter_active(mapping, lease, rng);
 }
 
 static void pcp_mapping_on_temporary_error(pcp_mapping_t *mapping,
-                                           pcp_response_t const *response,
+                                           struct pcp_response const *response,
                                            pcp_time_ms_t now) {
   auto const not_before = now + pcp_seconds(response->lifetime);
 
@@ -194,12 +226,13 @@ static void pcp_mapping_on_temporary_error(pcp_mapping_t *mapping,
 }
 
 void pcp_mapping_on_response(pcp_mapping_t *mapping,
-                             pcp_response_t const *response,
+                             struct pcp_response const *response,
                              pcp_time_ms_t now,
                              pcp_rng_t rng) {
   assert(mapping);
   assert(response);
-  assert(response->type == MAP || response->type == PEER);
+  assert(response->opcode == PCP_OPCODE_MAP ||
+         response->opcode == PCP_OPCODE_PEER);
 
   // only PENDING, ACTIVE, or RELEASING are waiting for responses
   if (mapping->state.type == FAILED || mapping->state.type == RELEASED) {
@@ -215,12 +248,13 @@ void pcp_mapping_on_response(pcp_mapping_t *mapping,
     return;
   }
 
-  if (response->result == SUCCESS) {
+  auto const result = (pcp_result_t)response->result;
+  if (result == SUCCESS) {
     pcp_mapping_on_success(mapping, response, now, rng);
-  } else if (pcp_result_is_temporary(response->result)) {
+  } else if (pcp_result_is_temporary(result)) {
     pcp_mapping_on_temporary_error(mapping, response, now);
   } else {
-    pcp_mapping_enter_failed(mapping, response->result);
+    pcp_mapping_enter_failed(mapping, result);
   }
 }
 
@@ -248,7 +282,7 @@ void pcp_mapping_release(pcp_mapping_t *mapping) {
   assert(mapping->state.type != RELEASING && mapping->state.type != RELEASED);
 
   // PEER mappings can't be deleted, they just expire
-  if (mapping->request.type == PEER) {
+  if (mapping->request.opcode == PCP_OPCODE_PEER) {
     pcp_mapping_enter_released(mapping);
     return;
   }
@@ -368,8 +402,7 @@ static bool pcp_mapping_send(pcp_mapping_t *mapping,
                              pcp_event_t *out) {
   auto const size = pcp_packet_write_request(
       (view_t){.size = config->buffer.size, .data = config->buffer.data},
-      &mapping->request, &mapping->nonce, &config->local, mapping->count,
-      mapping->options);
+      &mapping->request, mapping->count, mapping->options);
 
   // counts as sent as soon as the application gets the event
   pcp_schedule_advance(schedule, now, config->rng);

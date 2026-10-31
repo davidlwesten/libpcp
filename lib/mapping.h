@@ -2,10 +2,8 @@
 
 #include <pcp/pcp.h>
 
-#include "nonce.h"
-#include "request.h"
-#include "response.h"
 #include "schedule.h"
+#include "wire.h"
 
 /**
  * @brief What the server granted
@@ -54,8 +52,7 @@ typedef struct pcp_mapping_state {
 typedef struct pcp_mapping {
   struct pcp_mapping *next;
   pcp_handle_t handle;
-  pcp_request_t request;
-  pcp_nonce_t nonce;
+  struct pcp_request request;
   pcp_mapping_state_t state;
   /// Address from the last MAPPED event, cleared by UNMAPPED. Only used by
   /// pcp_mapping_report() to figure out which event to send next.
@@ -71,8 +68,7 @@ typedef struct pcp_mapping {
  */
 void pcp_mapping_init(pcp_mapping_t *mapping,
                       pcp_handle_t handle,
-                      pcp_request_t request,
-                      pcp_nonce_t nonce,
+                      struct pcp_request request,
                       size_t count,
                       pcp_option_t const options[count]);
 
@@ -80,7 +76,7 @@ void pcp_mapping_init(pcp_mapping_t *mapping,
  * @brief Handle a server response. Responses for other mappings are ignored.
  */
 void pcp_mapping_on_response(pcp_mapping_t *mapping,
-                             pcp_response_t const *response,
+                             struct pcp_response const *response,
                              pcp_time_ms_t now,
                              pcp_rng_t rng);
 

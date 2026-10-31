@@ -1,6 +1,5 @@
 #include "session.h"
 
-#include "response.h"
 #include "wire.h"
 
 #include <assert.h>
@@ -102,42 +101,69 @@ void pcp_session_end(pcp_session_t *session) {
   FREE(session->config.allocator, session);
 }
 
-static pcp_handle_or_error_t
-pcp_session_request(pcp_session_t *session,
-                    pcp_request_t request,
-                    size_t count,
-                    pcp_option_t const options[count]) {
-  assert(session);
+// Suggest "any" address, but in the client's own family since the server picks
+// one from the suggested family
+static socket_address_t pcp_session_any_external(ip_address_t const *internal) {
+  return (socket_address_t){
+      .ip =
+          ip_address_is_ipv4(internal) ? ip_address_any_v4 : ip_address_any_v6,
+      .port = 0,
+  };
+}
 
-  // has to fit in a single packet
-  if (pcp_packet_request_size(&request, count, options) > PCP_PACKET_MAX_SIZE) {
-    return (pcp_handle_or_error_t){
-        .has_value = false,
-        .error = EMSGSIZE,
-    };
-  }
+static pcp_handle_or_error_t pcp_session_error(errno_t error) {
+  return (pcp_handle_or_error_t){
+      .has_value = false,
+      .error = error,
+  };
+}
 
+// an address as the wire format stores it
+static void pcp_session_set_address(uint16_t *port,
+                                    uint8_t ip[16],
+                                    socket_address_t address) {
+  *port = address.port;
+  memcpy(ip, address.ip.addr, sizeof(address.ip.addr));
+}
+
+// a fresh nonce, which identifies the responses to a request
+static bool pcp_session_nonce(pcp_session_t const *session,
+                              size_t size,
+                              uint8_t nonce[size]) {
   auto const rng = session->config.rng;
-  pcp_nonce_t nonce = {0};
-  if (!rng.fill(rng.ctx, sizeof(nonce.data), nonce.data)) {
-    return (pcp_handle_or_error_t){
-        .has_value = false,
-        .error = ENOTRECOVERABLE,
-    };
+  return rng.fill(rng.ctx, size, nonce);
+}
+
+// the header of a request from this client, the caller fills in the body
+static struct pcp_request pcp_session_new_request(pcp_session_t const *session,
+                                                  enum pcp_opcode opcode,
+                                                  pcp_time_s_t lifetime) {
+  struct pcp_request result = {.opcode = opcode, .lifetime = lifetime};
+  memcpy(result.client_ip, session->config.local.addr,
+         sizeof(result.client_ip));
+  return result;
+}
+
+// start a mapping for a MAP or PEER request
+static pcp_handle_or_error_t
+pcp_session_add(pcp_session_t *session,
+                struct pcp_request const *request,
+                size_t count,
+                pcp_option_t const options[count]) {
+  // has to fit in a single packet
+  if (pcp_packet_request_size(request, count, options) > PCP_PACKET_MAX_SIZE) {
+    return pcp_session_error(EMSGSIZE);
   }
 
   pcp_mapping_t *mapping =
       ALLOC(session->config.allocator,
             sizeof(pcp_mapping_t) + sizeof(pcp_option_t) * count);
   if (!mapping) {
-    return (pcp_handle_or_error_t){
-        .has_value = false,
-        .error = ENOMEM,
-    };
+    return pcp_session_error(ENOMEM);
   }
 
   auto const handle = ++session->handles;
-  pcp_mapping_init(mapping, handle, request, nonce, count, options);
+  pcp_mapping_init(mapping, handle, *request, count, options);
 
   mapping->next = session->mappings;
   session->mappings = mapping;
@@ -145,16 +171,6 @@ pcp_session_request(pcp_session_t *session,
   return (pcp_handle_or_error_t){
       .has_value = true,
       .value = handle,
-  };
-}
-
-// Suggest "any" address, but in the client's own family since the server picks
-// one from the suggested family
-static socket_address_t pcp_session_any_external(pcp_session_t const *session) {
-  return (socket_address_t){
-      .ip = ip_address_is_ipv4(&session->config.local) ? ip_address_any_v4
-                                                       : ip_address_any_v6,
-      .port = 0,
   };
 }
 
@@ -167,19 +183,19 @@ pcp_handle_or_error_t pcp_session_map_request(pcp_session_t *session,
   assert(session);
   // lifetime 0 means delete
   assert(lifetime > 0);
-  return pcp_session_request(
-      session,
-      (pcp_request_t){
-          .lifetime = lifetime,
-          .protocol = protocol,
-          .port = port,
-          .type = MAP,
-          .map =
-              {
-                  .external = pcp_session_any_external(session),
-              },
-      },
-      count, options);
+
+  auto request = pcp_session_new_request(session, PCP_OPCODE_MAP, lifetime);
+  auto const body = &request.body.map_body;
+  body->protocol = protocol;
+  body->internal_port = port;
+  pcp_session_set_address(&body->external_port, body->external_ip,
+                          pcp_session_any_external(&session->config.local));
+
+  if (!pcp_session_nonce(session, sizeof(body->nonce), body->nonce)) {
+    return pcp_session_error(ENOTRECOVERABLE);
+  }
+
+  return pcp_session_add(session, &request, count, options);
 }
 
 pcp_handle_or_error_t pcp_session_peer_request(pcp_session_t *session,
@@ -192,20 +208,20 @@ pcp_handle_or_error_t pcp_session_peer_request(pcp_session_t *session,
   assert(session);
   // lifetime 0 means delete
   assert(lifetime > 0);
-  return pcp_session_request(
-      session,
-      (pcp_request_t){
-          .lifetime = lifetime,
-          .protocol = protocol,
-          .port = port,
-          .type = PEER,
-          .peer =
-              {
-                  .external = pcp_session_any_external(session),
-                  .peer = peer,
-              },
-      },
-      count, options);
+
+  auto request = pcp_session_new_request(session, PCP_OPCODE_PEER, lifetime);
+  auto const body = &request.body.peer_body;
+  body->protocol = protocol;
+  body->internal_port = port;
+  pcp_session_set_address(&body->external_port, body->external_ip,
+                          pcp_session_any_external(&session->config.local));
+  pcp_session_set_address(&body->peer_port, body->peer_ip, peer);
+
+  if (!pcp_session_nonce(session, sizeof(body->nonce), body->nonce)) {
+    return pcp_session_error(ENOTRECOVERABLE);
+  }
+
+  return pcp_session_add(session, &request, count, options);
 }
 
 // look up a mapping the application still owns
@@ -246,18 +262,18 @@ void pcp_session_on_datagram(pcp_session_t *session,
   assert(session);
   assert(data);
 
-  pcp_response_t response = {0};
-  if (!pcp_packet_read_response((const_view_t){.size = size, .data = data},
-                                &response)) {
+  auto const response =
+      pcp_packet_read_response((const_view_t){.size = size, .data = data});
+  if (!response.has_value) {
     return;
   }
 
-  if (!pcp_epoch_update(&session->epoch, now, response.epoch)) {
+  if (!pcp_epoch_update(&session->epoch, now, response.value.epoch)) {
     // The server lost its state, so request everything again. If this was due
     // to ANNOUNCE wait a random 0-5s first because every client on the network
     // got it at the same time
     pcp_time_ms_t not_before = 0;
-    if (response.type == ANNOUNCE) {
+    if (response.value.opcode == PCP_OPCODE_ANNOUNCE) {
       auto const rng = session->config.rng;
       uint16_t random = 0;
       if (rng.fill(rng.ctx, sizeof(random), (uint8_t *)&random)) {
@@ -274,11 +290,11 @@ void pcp_session_on_datagram(pcp_session_t *session,
   }
 
   // ANNOUNCE only carries the epoch
-  if (response.type == ANNOUNCE) {
+  if (response.value.opcode == PCP_OPCODE_ANNOUNCE) {
     return;
   }
 
   for (auto iter = session->mappings; iter; iter = iter->next) {
-    pcp_mapping_on_response(iter, &response, now, session->config.rng);
+    pcp_mapping_on_response(iter, &response.value, now, session->config.rng);
   }
 }

@@ -98,6 +98,17 @@ cmake --build build
 ctest --test-dir build
 ```
 
+The wire format is generated from `lib/pcp.pkt` by [pktc], along with a
+libFuzzer harness for it. To build and run the harness (clang only):
+
+```sh
+cmake -S . -B build -DCMAKE_C_COMPILER=clang -DPCP_BUILD_FUZZER=ON
+cmake --build build
+./build/test/pcp_fuzz -max_total_time=60
+```
+
+[pktc]: https://github.com/davidlwesten/pktc
+
 The example client takes the server's address:
 
 ```sh

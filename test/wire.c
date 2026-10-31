@@ -3,41 +3,73 @@
 #include <string.h>
 #include <unity.h>
 
-#include "request.h"
-#include "response.h"
 #include "runner.h"
 #include "wire.h"
 
-static pcp_nonce_t const nonce = {
-    .data = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}};
+static uint8_t const nonce[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
 
-static pcp_request_t map_request(socket_address_t external) {
-  return (pcp_request_t){
-      .lifetime = 3600,
-      .protocol = UDP,
-      .port = 12345,
-      .type = MAP,
-      .map = {.external = external},
-  };
+// from client 192.168.1.100, for an hour
+static struct pcp_request from_client(struct pcp_request request) {
+  auto const client = ip_address_from_octets(192, 168, 1, 100);
+  memcpy(request.client_ip, client.addr, sizeof(request.client_ip));
+  request.lifetime = 3600;
+  return request;
 }
 
-static size_t write_request_with(pcp_request_t const *request,
+// from internal port 12345
+static struct pcp_request map_request(socket_address_t external) {
+  auto result = from_client((struct pcp_request){
+      .opcode = PCP_OPCODE_MAP,
+      .body.map_body =
+          {
+              .protocol = UDP,
+              .internal_port = 12345,
+              .external_port = external.port,
+          },
+  });
+  auto const body = &result.body.map_body;
+  memcpy(body->nonce, nonce, sizeof(body->nonce));
+  memcpy(body->external_ip, external.ip.addr, sizeof(body->external_ip));
+  return result;
+}
+
+// from internal port 12345
+static struct pcp_request peer_request(socket_address_t external,
+                                       socket_address_t peer) {
+  auto result = from_client((struct pcp_request){
+      .opcode = PCP_OPCODE_PEER,
+      .body.peer_body =
+          {
+              .protocol = TCP,
+              .internal_port = 12345,
+              .external_port = external.port,
+              .peer_port = peer.port,
+          },
+  });
+  auto const body = &result.body.peer_body;
+  memcpy(body->nonce, nonce, sizeof(body->nonce));
+  memcpy(body->external_ip, external.ip.addr, sizeof(body->external_ip));
+  memcpy(body->peer_ip, peer.ip.addr, sizeof(body->peer_ip));
+  return result;
+}
+
+static size_t write_request_with(struct pcp_request const *request,
                                  size_t count,
                                  pcp_option_t const options[count],
                                  uint8_t buffer[]) {
   // garbage, so we notice reserved fields that aren't written
   memset(buffer, 0xAA, PCP_PACKET_MAX_SIZE);
 
-  auto const internal = ip_address_from_octets(192, 168, 1, 100);
   auto const size = pcp_packet_write_request(
-      (view_t){.size = PCP_PACKET_MAX_SIZE, .data = buffer}, request, &nonce,
-      &internal, count, options);
+      (view_t){.size = PCP_PACKET_MAX_SIZE, .data = buffer}, request, count,
+      options);
   TEST_ASSERT_EQUAL_size_t(pcp_packet_request_size(request, count, options),
                            size);
   return size;
 }
 
-static size_t write_request(pcp_request_t const *request, uint8_t buffer[]) {
+static size_t write_request(struct pcp_request const *request,
+                            uint8_t buffer[]) {
   return write_request_with(request, 0, nullptr, buffer);
 }
 
@@ -89,19 +121,11 @@ static void test_wire_map_request_without_suggestion() {
 }
 
 static void test_wire_peer_request() {
-  pcp_request_t const request = {
-      .lifetime = 3600,
-      .protocol = TCP,
-      .port = 12345,
-      .type = PEER,
-      .peer =
-          {
-              .external = {.ip = ip_address_from_octets(203, 0, 113, 7),
-                           .port = 54321},
-              .peer = {.ip = ip_address_from_string("2001:db8::1").value,
-                       .port = 443},
-          },
-  };
+  auto const request = peer_request(
+      (socket_address_t){.ip = ip_address_from_octets(203, 0, 113, 7),
+                         .port = 54321},
+      (socket_address_t){.ip = ip_address_from_string("2001:db8::1").value,
+                         .port = 443});
 
   uint8_t buffer[PCP_PACKET_MAX_SIZE];
   auto const size = write_request(&request, buffer);
@@ -213,15 +237,10 @@ static void test_wire_delete_request_without_filters() {
 }
 
 static void test_wire_peer_request_with_options() {
-  pcp_request_t const request = {
-      .lifetime = 3600,
-      .protocol = TCP,
-      .port = 12345,
-      .type = PEER,
-      .peer = {.external = {.ip = ip_address_any_v4, .port = 0},
-               .peer = {.ip = ip_address_from_octets(198, 51, 100, 1),
-                        .port = 443}},
-  };
+  auto const request = peer_request(
+      (socket_address_t){.ip = ip_address_any_v4, .port = 0},
+      (socket_address_t){.ip = ip_address_from_octets(198, 51, 100, 1),
+                         .port = 443});
 
   uint8_t buffer[PCP_PACKET_MAX_SIZE];
   TEST_ASSERT_EQUAL_size_t(
@@ -251,31 +270,30 @@ static uint8_t const map_response[] = {
     0xCB, 0x00, 0x71, 0x07};
 // clang-format on
 
-static bool
-read_response(size_t size, uint8_t const data[size], pcp_response_t *out) {
-  return pcp_packet_read_response((const_view_t){.size = size, .data = data},
-                                  out);
+static pcp_optional_response_t read_response(size_t size,
+                                             uint8_t const data[size]) {
+  return pcp_packet_read_response((const_view_t){.size = size, .data = data});
 }
 
 static void test_wire_read_map_response() {
-  pcp_response_t response = {0};
-  TEST_ASSERT_TRUE(
-      read_response(sizeof(map_response), map_response, &response));
+  auto const read = read_response(sizeof(map_response), map_response);
+  TEST_ASSERT_TRUE(read.has_value);
+  auto const response = &read.value;
 
-  TEST_ASSERT_EQUAL(MAP, response.type);
-  TEST_ASSERT_EQUAL(SUCCESS, response.result);
-  TEST_ASSERT_EQUAL_UINT32(7200, response.lifetime);
-  TEST_ASSERT_EQUAL_UINT32(1000, response.epoch);
-  TEST_ASSERT_EQUAL(UDP, response.map.protocol);
-  TEST_ASSERT_EQUAL_UINT16(12345, response.map.port);
+  TEST_ASSERT_EQUAL(PCP_OPCODE_MAP, response->opcode);
+  TEST_ASSERT_EQUAL(SUCCESS, response->result);
+  TEST_ASSERT_EQUAL_UINT32(7200, response->lifetime);
+  TEST_ASSERT_EQUAL_UINT32(1000, response->epoch);
+
+  auto const map = &response->body.map_response;
+  TEST_ASSERT_EQUAL(UDP, map->protocol);
+  TEST_ASSERT_EQUAL_UINT16(12345, map->internal_port);
 
   auto const external = ip_address_from_octets(203, 0, 113, 7);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(external.addr, response.map.external.ip.addr,
-                                16);
-  TEST_ASSERT_EQUAL_UINT16(54321, response.map.external.port);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(external.addr, map->external_ip, 16);
+  TEST_ASSERT_EQUAL_UINT16(54321, map->external_port);
 
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(nonce.data, response.map.nonce.data,
-                                sizeof(nonce.data));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(nonce, map->nonce, sizeof(nonce));
 }
 
 static void test_wire_read_peer_response() {
@@ -290,17 +308,18 @@ static void test_wire_read_peer_response() {
   auto const peer = ip_address_from_string("2001:db8::1").value;
   memcpy(data + 64, peer.addr, sizeof(peer.addr));
 
-  pcp_response_t response = {0};
-  TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
+  auto const read = read_response(sizeof(data), data);
+  TEST_ASSERT_TRUE(read.has_value);
+  auto const response = &read.value;
 
-  TEST_ASSERT_EQUAL(PEER, response.type);
-  TEST_ASSERT_EQUAL(TCP, response.peer.protocol);
-  TEST_ASSERT_EQUAL_UINT16(12345, response.peer.port);
-  TEST_ASSERT_EQUAL_UINT16(54321, response.peer.external.port);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(nonce.data, response.peer.nonce.data,
-                                sizeof(nonce.data));
-  TEST_ASSERT_EQUAL_UINT16(443, response.peer.peer.port);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(peer.addr, response.peer.peer.ip.addr, 16);
+  TEST_ASSERT_EQUAL(PCP_OPCODE_PEER, response->opcode);
+  auto const body = &response->body.peer_response;
+  TEST_ASSERT_EQUAL(TCP, body->protocol);
+  TEST_ASSERT_EQUAL_UINT16(12345, body->internal_port);
+  TEST_ASSERT_EQUAL_UINT16(54321, body->external_port);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(nonce, body->nonce, sizeof(nonce));
+  TEST_ASSERT_EQUAL_UINT16(443, body->peer_port);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(peer.addr, body->peer_ip, 16);
 }
 
 static void test_wire_read_announce_response() {
@@ -316,21 +335,23 @@ static void test_wire_read_announce_response() {
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   // clang-format on
 
-  pcp_response_t response = {0};
-  TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
-  TEST_ASSERT_EQUAL(ANNOUNCE, response.type);
-  TEST_ASSERT_EQUAL(SUCCESS, response.result);
-  TEST_ASSERT_EQUAL_UINT32(0, response.lifetime);
-  TEST_ASSERT_EQUAL_UINT32(5, response.epoch);
+  auto const read = read_response(sizeof(data), data);
+  TEST_ASSERT_TRUE(read.has_value);
+  auto const response = &read.value;
+  TEST_ASSERT_EQUAL(PCP_OPCODE_ANNOUNCE, response->opcode);
+  TEST_ASSERT_EQUAL(SUCCESS, response->result);
+  TEST_ASSERT_EQUAL_UINT32(0, response->lifetime);
+  TEST_ASSERT_EQUAL_UINT32(5, response->epoch);
 }
 
 static void test_wire_read_announce_response_skips_options() {
   uint8_t data[32] = {0x02, 0x80};
   data[24] = 0x80; // an unknown, optional option code
 
-  pcp_response_t response = {0};
-  TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
-  TEST_ASSERT_EQUAL(ANNOUNCE, response.type);
+  auto const read = read_response(sizeof(data), data);
+  TEST_ASSERT_TRUE(read.has_value);
+  auto const response = &read.value;
+  TEST_ASSERT_EQUAL(PCP_OPCODE_ANNOUNCE, response->opcode);
 }
 
 static void test_wire_read_error_response() {
@@ -340,10 +361,11 @@ static void test_wire_read_error_response() {
   data[4] = data[5] = data[6] = 0;
   data[7] = 30; // retry after 30s
 
-  pcp_response_t response = {0};
-  TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
-  TEST_ASSERT_EQUAL(NO_RESOURCES, response.result);
-  TEST_ASSERT_EQUAL_UINT32(30, response.lifetime);
+  auto const read = read_response(sizeof(data), data);
+  TEST_ASSERT_TRUE(read.has_value);
+  auto const response = &read.value;
+  TEST_ASSERT_EQUAL(NO_RESOURCES, response->result);
+  TEST_ASSERT_EQUAL_UINT32(30, response->lifetime);
 }
 
 static void test_wire_read_response_skips_options() {
@@ -351,9 +373,10 @@ static void test_wire_read_response_skips_options() {
   memcpy(data, map_response, sizeof(map_response));
   data[sizeof(map_response)] = 0x80; // an unknown, optional option code
 
-  pcp_response_t response = {0};
-  TEST_ASSERT_TRUE(read_response(sizeof(data), data, &response));
-  TEST_ASSERT_EQUAL_UINT16(54321, response.map.external.port);
+  auto const read = read_response(sizeof(data), data);
+  TEST_ASSERT_TRUE(read.has_value);
+  auto const response = &read.value;
+  TEST_ASSERT_EQUAL_UINT16(54321, response->body.map_response.external_port);
 }
 
 // returns whether a copy of map_response broken by `modify` is still accepted
@@ -364,12 +387,11 @@ static bool read_modified(size_t size, void (*modify)(uint8_t data[])) {
     modify(data);
   }
 
-  pcp_response_t response = {0};
-  return read_response(size, data, &response);
+  return read_response(size, data).has_value;
 }
 
 static void wrong_version(uint8_t data[]) { data[0] = 1; }
-static void request_bit(uint8_t data[]) { data[1] = MAP; }
+static void request_bit(uint8_t data[]) { data[1] = PCP_OPCODE_MAP; }
 static void unknown_opcode(uint8_t data[]) { data[1] = 0x83; }
 static void peer_opcode(uint8_t data[]) { data[1] = 0x82; }
 
