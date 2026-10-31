@@ -5,6 +5,8 @@ project(pcp VERSION 1.0.0 LANGUAGES C)
 # The example is only built by default when libpcp isn't pulled in by another
 # project (e.g. through FetchContent)
 option(PCP_BUILD_EXAMPLE "Build the example client" ${PROJECT_IS_TOP_LEVEL})
+option(PCP_BUILD_FUZZER "Build the libFuzzer harness for the wire format (clang)"
+       OFF)
 option(PCP_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"
        ${PROJECT_IS_TOP_LEVEL})
 

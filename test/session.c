@@ -110,7 +110,7 @@ static void test_session_send_writes_into_config_buffer() {
 
   // the request header starts with the version and opcode
   TEST_ASSERT_EQUAL_UINT8(2, send_buffer[0]);
-  TEST_ASSERT_EQUAL_UINT8(MAP, send_buffer[1]);
+  TEST_ASSERT_EQUAL_UINT8(PCP_OPCODE_MAP, send_buffer[1]);
   end();
 }
 
@@ -190,17 +190,25 @@ static void deliver(pcp_time_ms_t now,
 
   if (mapping) {
     auto const request = &mapping->request;
-    data[1] = (uint8_t)(0x80 | request->type);
-    memcpy(data + 24, mapping->nonce.data, sizeof(mapping->nonce.data));
-    data[36] = request->protocol;
-    data[40] = (uint8_t)(request->port >> 8);
-    data[41] = (uint8_t)request->port;
+    data[1] = (uint8_t)(0x80 | request->opcode);
 
-    if (request->type == PEER) {
-      auto const remote = peer ? peer : &request->peer.peer;
-      data[60] = (uint8_t)(remote->port >> 8);
-      data[61] = (uint8_t)remote->port;
-      memcpy(data + 64, remote->ip.addr, sizeof(remote->ip.addr));
+    if (request->opcode == PCP_OPCODE_MAP) {
+      auto const sent = &request->body.map_body;
+      memcpy(data + 24, sent->nonce, sizeof(sent->nonce));
+      data[36] = sent->protocol;
+      data[40] = (uint8_t)(sent->internal_port >> 8);
+      data[41] = (uint8_t)sent->internal_port;
+    } else {
+      auto const sent = &request->body.peer_body;
+      memcpy(data + 24, sent->nonce, sizeof(sent->nonce));
+      data[36] = sent->protocol;
+      data[40] = (uint8_t)(sent->internal_port >> 8);
+      data[41] = (uint8_t)sent->internal_port;
+
+      auto const port = peer ? peer->port : sent->peer_port;
+      data[60] = (uint8_t)(port >> 8);
+      data[61] = (uint8_t)port;
+      memcpy(data + 64, peer ? peer->ip.addr : sent->peer_ip, 16);
       size = 80;
     }
   }

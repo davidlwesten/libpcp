@@ -53,3 +53,23 @@ endforeach()
 foreach(test_case IN LISTS TEST_CASES)
   add_test(NAME ${test_case} COMMAND tests ${test_case})
 endforeach()
+
+# Checks that every packet the generated code decodes encodes back to the same
+# bytes, and that every message it builds decodes again. Run it with
+# ./build/test/pcp_fuzz -max_total_time=60
+if(PCP_BUILD_FUZZER)
+  if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "PCP_BUILD_FUZZER needs clang for libFuzzer")
+  endif()
+
+  add_executable(pcp_fuzz pcp_fuzz.c ${PROJECT_SOURCE_DIR}/lib/pcp_gen.c)
+  target_compile_features(pcp_fuzz PRIVATE c_std_23)
+  target_include_directories(pcp_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/lib)
+  target_compile_options(pcp_fuzz
+    PRIVATE
+      -g
+      -fsanitize=fuzzer,address,undefined)
+  target_link_options(pcp_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+  # pcp_fuzz.c is regenerated along with the library's sources
+  add_dependencies(pcp_fuzz pcp)
+endif()

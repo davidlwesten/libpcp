@@ -82,12 +82,6 @@ typedef enum pcp_protocol : uint8_t {
   UDP = 17,
 } pcp_protocol_t;
 
-typedef enum pcp_opcode : uint8_t {
-  ANNOUNCE = 0,
-  MAP = 1,
-  PEER = 2
-} pcp_opcode_t;
-
 typedef struct pcp_option {
   enum {
     /// Map on behalf of another internal host (MAP and PEER)

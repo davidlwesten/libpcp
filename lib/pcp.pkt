@@ -1,0 +1,124 @@
+// PCP wire format (RFC 6887). Generates pcp_gen.h and pcp_gen.c
+// with pktc, see lib/CMakeLists.txt. Only covers what libpcp sends and
+// receives: MAP and PEER requests with THIRD_PARTY and FILTER options, and
+// ANNOUNCE, MAP and PEER responses.
+protocol pcp;
+endian big;
+
+enum Opcode : u7 {
+  ANNOUNCE = 0,
+  MAP = 1,
+  PEER = 2,
+}
+
+enum OptionCode : u8 {
+  THIRD_PARTY = 1,
+  FILTER = 3,
+}
+
+// section 11.1
+struct MapBody {
+  nonce: u8[12];
+  protocol: u8;
+  _: u8[3];
+  internal_port: u16;
+  external_port: u16;
+  external_ip: u8[16];
+}
+
+// section 12.1, the MAP fields followed by the remote peer. They're repeated
+// rather than nested, so MAP and PEER bodies both have flat fields.
+struct PeerBody {
+  nonce: u8[12];
+  protocol: u8;
+  _: u8[3];
+  internal_port: u16;
+  external_port: u16;
+  external_ip: u8[16];
+  peer_port: u16;
+  _: u16;
+  peer_ip: u8[16];
+}
+
+// section 7.1. The options are a separate message so they can be written one
+// after another behind the request without collecting them first.
+message Request {
+  version: u8 = 2;
+  r: u1 = 0;
+  opcode: Opcode;
+  _: u16;
+  lifetime: u32;
+  client_ip: u8[16];
+  body: switch (opcode) {
+    MAP => MapBody,
+    PEER => PeerBody,
+  };
+}
+
+// section 13.1. The option length is constant per option, so it lives in the
+// option bodies.
+struct ThirdParty {
+  length: u16 = 16;
+  internal_ip: u8[16];
+}
+
+// section 13.3
+struct Filter {
+  length: u16 = 20;
+  _: u8;
+  prefix: u8;
+  peer_port: u16;
+  peer_ip: u8[16];
+}
+
+// section 7.3
+message RequestOption {
+  code: OptionCode;
+  _: u8;
+  body: switch (code) {
+    THIRD_PARTY => ThirdParty,
+    FILTER => Filter,
+  };
+}
+
+// The request bodies followed by the options, which are skipped
+struct MapResponse {
+  nonce: u8[12];
+  protocol: u8;
+  _: u8[3];
+  internal_port: u16;
+  external_port: u16;
+  external_ip: u8[16];
+  options: u8[..];
+}
+
+struct PeerResponse {
+  nonce: u8[12];
+  protocol: u8;
+  _: u8[3];
+  internal_port: u16;
+  external_port: u16;
+  external_ip: u8[16];
+  peer_port: u16;
+  _: u16;
+  peer_ip: u8[16];
+  options: u8[..];
+}
+
+// section 7.2. Anything but MAP and PEER (ANNOUNCE has no body) ends up in
+// body.unknown.
+message Response max 1100 {
+  version: u8 = 2;
+  r: u1 = 1;
+  opcode: Opcode;
+  _: u8;
+  result: u8;
+  lifetime: u32;
+  epoch: u32;
+  _: u8[12];
+  body: switch (opcode) {
+    MAP => MapResponse,
+    PEER => PeerResponse,
+    _ => u8[..],
+  };
+}
