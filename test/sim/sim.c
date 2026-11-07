@@ -247,8 +247,39 @@ void sim_set_network_behavior(sim_t *sim, sim_network_behavior_t behavior) {
   sim_network_set_behavior(&sim->network, behavior);
 }
 
+void sim_restart_server(sim_t *sim, sim_restart_t restart) {
+  auto external_ip = sim->server.external_ip;
+  if (restart.new_address) {
+    ++sim->restarts;
+    external_ip =
+        ip_address_from_octets(203, 0, 113, (uint8_t)(7 + sim->restarts));
+  }
+
+  sim_trace(sim, "server restarted, announcing", restart.announce);
+  sim_server_start(&sim->server, external_ip, sim->now);
+
+  if (restart.announce) {
+    uint8_t data[SIM_SERVER_RESPONSE_SIZE];
+    sim_send_to_client(sim, sim_server_announce(&sim->server, sim->now, data),
+                       data);
+  }
+}
+
 void sim_set_server_behavior(sim_t *sim, sim_server_behavior_t behavior) {
   sim_server_set_behavior(&sim->server, behavior);
+}
+
+void sim_inject(sim_t *sim, size_t size, uint8_t const data[size]) {
+  sim_trace(sim, "client got a datagram from elsewhere, bytes", size);
+  pcp_session_on_datagram(sim->client.session, sim->now, size, data);
+}
+
+void sim_inject_forged_response(sim_t *sim, pcp_handle_t handle) {
+  auto const mapping = sim_observer_find(&sim->observer, handle);
+  uint8_t data[SIM_SERVER_RESPONSE_SIZE];
+  auto const size = sim_server_forge_response(
+      &sim->server, sim->now, mapping->protocol, mapping->port, data);
+  sim_inject(sim, size, data);
 }
 
 socket_address_t sim_external(sim_t const *sim, pcp_handle_t handle) {

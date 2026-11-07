@@ -236,6 +236,35 @@ void sim_server_set_behavior(sim_server_t *server,
   server->behavior = behavior;
 }
 
+size_t sim_server_announce(sim_server_t const *server,
+                           pcp_time_ms_t now,
+                           uint8_t data[SIM_SERVER_RESPONSE_SIZE]) {
+  struct pcp_announce_response const body = {.epoch = epoch_of(server, now)};
+  uint8_t rest[PCP_ANNOUNCE_RESPONSE_MIN_SIZE];
+  size_t rest_size = 0;
+  TEST_ASSERT_EQUAL(PCP_OK, pcp_announce_response_encode(
+                                &body, rest, sizeof(rest), &rest_size));
+  return write_header(VERSION, PCP_OPCODE_ANNOUNCE, SUCCESS, rest_size, rest,
+                      data);
+}
+
+size_t sim_server_forge_response(sim_server_t const *server,
+                                 pcp_time_ms_t now,
+                                 pcp_protocol_t protocol,
+                                 port_t internal_port,
+                                 uint8_t data[SIM_SERVER_RESPONSE_SIZE]) {
+  struct pcp_map_response body = {
+      .lifetime = 3600,
+      .epoch = epoch_of(server, now),
+      .protocol = protocol,
+      .internal_port = internal_port,
+      .external_port = 1,
+  };
+  memset(body.nonce, 0xAA, sizeof(body.nonce));
+  memcpy(body.external_ip, server->external_ip.addr, sizeof(body.external_ip));
+  return write_response(SUCCESS, &body, data);
+}
+
 sim_server_reply_t sim_server_on_datagram(sim_server_t *server,
                                           pcp_time_ms_t now,
                                           ip_address_t source,

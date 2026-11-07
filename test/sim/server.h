@@ -132,6 +132,28 @@ void sim_server_start(sim_server_t *server,
 void sim_server_set_behavior(sim_server_t *server,
                              sim_server_behavior_t behavior);
 
+/**
+ * @brief Write the ANNOUNCE a server sends after it restarted (section 14.1.3)
+ *
+ * @returns The size of what was written
+ */
+size_t sim_server_announce(sim_server_t const *server,
+                           pcp_time_ms_t now,
+                           uint8_t data[SIM_SERVER_RESPONSE_SIZE]);
+
+/**
+ * @brief Write what looks like a successful response for this mapping, but with
+ *        a nonce nobody sent, which is what an attacker without access to the
+ *        requests could do. The epoch is the real one.
+ *
+ * @returns The size of what was written
+ */
+size_t sim_server_forge_response(sim_server_t const *server,
+                                 pcp_time_ms_t now,
+                                 pcp_protocol_t protocol,
+                                 port_t internal_port,
+                                 uint8_t data[SIM_SERVER_RESPONSE_SIZE]);
+
 typedef struct sim_server_reply {
   /// What came of the request
   pcp_result_t result;

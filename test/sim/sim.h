@@ -24,6 +24,13 @@ static constexpr sim_duration_ms_t SIM_HOUR = 60 * SIM_MINUTE;
 
 static constexpr size_t SIM_MAX_TRACE = 1024;
 
+typedef struct sim_restart {
+  /// Tell the client it restarted, otherwise it finds out from a later response
+  bool announce;
+  /// Come back with another external address
+  bool new_address;
+} sim_restart_t;
+
 /**
  * @brief One line of a scenario's timeline
  */
@@ -53,6 +60,8 @@ typedef struct sim {
   pcp_optional_time_ms_t deadline;
   size_t events_this_run;
 
+  uint8_t restarts;
+
   size_t trace_count;
   sim_trace_entry_t trace[SIM_MAX_TRACE];
 } sim_t;
@@ -77,7 +86,16 @@ void sim_run_for(sim_t *sim, sim_duration_ms_t duration);
  */
 void sim_set_network_behavior(sim_t *sim, sim_network_behavior_t behavior);
 
+void sim_restart_server(sim_t *sim, sim_restart_t restart);
+
 void sim_set_server_behavior(sim_t *sim, sim_server_behavior_t behavior);
+
+void sim_inject(sim_t *sim, size_t size, uint8_t const data[size]);
+
+/**
+ * @brief Hand the client a response for `handle`'s port with the wrong nonce
+ */
+void sim_inject_forged_response(sim_t *sim, pcp_handle_t handle);
 
 socket_address_t sim_external(sim_t const *sim, pcp_handle_t handle);
 
