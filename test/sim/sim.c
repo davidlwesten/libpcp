@@ -281,6 +281,12 @@ void sim_assert_no_lease(sim_t *sim, pcp_handle_t handle) {
                            "the server still has a lease for it");
 }
 
+void sim_assert_no_events(sim_t const *sim, pcp_handle_t handle) {
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(
+      0, sim_observer_find(&sim->observer, handle)->event_count,
+      "the application already heard about this mapping");
+}
+
 void sim_assert_idle(sim_t const *sim) {
   TEST_ASSERT_EQUAL_size_t_MESSAGE(0, sim_network_in_flight(&sim->network),
                                    "datagrams in flight");

@@ -91,6 +91,8 @@ void sim_assert_mapped(sim_t *sim, pcp_handle_t handle);
 
 void sim_assert_no_lease(sim_t *sim, pcp_handle_t handle);
 
+void sim_assert_no_events(sim_t const *sim, pcp_handle_t handle);
+
 /**
  * @brief Check nothing is in flight and the client has nothing scheduled
  */
