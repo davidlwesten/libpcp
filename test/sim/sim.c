@@ -243,6 +243,11 @@ void sim_run_for(sim_t *sim, sim_duration_ms_t duration) {
   }
 }
 
+void sim_sleep(sim_t *sim, sim_duration_ms_t duration) {
+  sim_trace(sim, "client went to sleep, seconds", duration / SIM_SECOND);
+  sim->now += duration;
+}
+
 void sim_set_network_behavior(sim_t *sim, sim_network_behavior_t behavior) {
   sim_network_set_behavior(&sim->network, behavior);
 }

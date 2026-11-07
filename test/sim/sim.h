@@ -81,6 +81,12 @@ void sim_start(sim_t *sim);
 void sim_run_for(sim_t *sim, sim_duration_ms_t duration);
 
 /**
+ * @brief Let `duration` pass without the client running, like a laptop that's
+ *        sleeping, which it notices once its next run sees the clock has jumped
+ */
+void sim_sleep(sim_t *sim, sim_duration_ms_t duration);
+
+/**
  * @brief Change what happens to datagrams from now on, all of them arrive
  *        normally by default
  */
