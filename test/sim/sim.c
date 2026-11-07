@@ -10,15 +10,6 @@ static constexpr sim_duration_ms_t SIM_LATENCY = 10;
 
 static_assert(PCP_PACKET_MAX_SIZE <= SIM_NETWORK_MAX_DATAGRAM_SIZE);
 
-// splitmix64, small and independent of the platform's rand()
-static uint64_t sim_random(uint64_t *state) {
-  *state += 0x9E3779B97F4A7C15;
-  uint64_t value = *state;
-  value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9;
-  value = (value ^ (value >> 27)) * 0x94D049BB133111EB;
-  return value ^ (value >> 31);
-}
-
 static bool sim_rng_fill(void *ctx, size_t size, uint8_t data[size]) {
   sim_t *sim = ctx;
   for (size_t i = 0; i < size; ++i) {
@@ -87,7 +78,10 @@ sim_on_client_send(void *ctx, size_t size, uint8_t const data[size]) {
   sim_trace(sim, "client sent, bytes", size);
   TEST_ASSERT_LESS_OR_EQUAL_size_t_MESSAGE(PCP_PACKET_MAX_SIZE, size,
                                            "datagram over 1100 bytes");
-  sim_network_send(&sim->network, sim->now, SIM_ENDPOINT_SERVER, size, data);
+  if (!sim_network_send(&sim->network, sim->now, SIM_ENDPOINT_SERVER, size,
+                        data)) {
+    sim_trace(sim, "network lost the client's datagram, bytes", size);
+  }
 }
 
 static void sim_on_client_event(void *ctx, pcp_event_t const *event) {
@@ -131,7 +125,10 @@ static void sim_on_client_released(void *ctx, pcp_handle_t handle) {
 
 static void
 sim_send_to_client(sim_t *sim, size_t size, uint8_t const data[size]) {
-  sim_network_send(&sim->network, sim->now, SIM_ENDPOINT_CLIENT, size, data);
+  if (!sim_network_send(&sim->network, sim->now, SIM_ENDPOINT_CLIENT, size,
+                        data)) {
+    sim_trace(sim, "network lost the server's datagram, bytes", size);
+  }
 }
 
 static void sim_deliver_to_server(sim_t *sim, sim_datagram_t const *datagram) {
@@ -246,6 +243,10 @@ void sim_run_for(sim_t *sim, sim_duration_ms_t duration) {
   }
 }
 
+void sim_set_network_behavior(sim_t *sim, sim_network_behavior_t behavior) {
+  sim_network_set_behavior(&sim->network, behavior);
+}
+
 socket_address_t sim_external(sim_t const *sim, pcp_handle_t handle) {
   auto const mapping = sim_observer_find(&sim->observer, handle);
   TEST_ASSERT_EQUAL_MESSAGE(SIM_OBSERVED_MAPPED, mapping->state,
@@ -254,6 +255,10 @@ socket_address_t sim_external(sim_t const *sim, pcp_handle_t handle) {
 }
 
 sim_server_stats_t sim_stats(sim_t const *sim) { return sim->server.stats; }
+
+sim_network_stats_t sim_network_stats(sim_t const *sim) {
+  return sim->network.stats;
+}
 
 void sim_assert_mapped(sim_t *sim, pcp_handle_t handle) {
   auto const mapping = sim_observer_find(&sim->observer, handle);

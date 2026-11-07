@@ -71,9 +71,17 @@ void sim_start(sim_t *sim);
 
 void sim_run_for(sim_t *sim, sim_duration_ms_t duration);
 
+/**
+ * @brief Change what happens to datagrams from now on, all of them arrive
+ *        normally by default
+ */
+void sim_set_network_behavior(sim_t *sim, sim_network_behavior_t behavior);
+
 socket_address_t sim_external(sim_t const *sim, pcp_handle_t handle);
 
 sim_server_stats_t sim_stats(sim_t const *sim);
+
+sim_network_stats_t sim_network_stats(sim_t const *sim);
 
 /**
  * @brief Check the application thinks `handle` is mapped, and that the server
