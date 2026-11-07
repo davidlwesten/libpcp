@@ -77,6 +77,8 @@ void sim_run_for(sim_t *sim, sim_duration_ms_t duration);
  */
 void sim_set_network_behavior(sim_t *sim, sim_network_behavior_t behavior);
 
+void sim_set_server_behavior(sim_t *sim, sim_server_behavior_t behavior);
+
 socket_address_t sim_external(sim_t const *sim, pcp_handle_t handle);
 
 sim_server_stats_t sim_stats(sim_t const *sim);
@@ -90,6 +92,10 @@ sim_network_stats_t sim_network_stats(sim_t const *sim);
 void sim_assert_mapped(sim_t *sim, pcp_handle_t handle);
 
 void sim_assert_no_lease(sim_t *sim, pcp_handle_t handle);
+
+void sim_assert_failed(sim_t const *sim,
+                       pcp_handle_t handle,
+                       pcp_result_t result);
 
 void sim_assert_no_events(sim_t const *sim, pcp_handle_t handle);
 

@@ -73,10 +73,13 @@ void sim_observer_on_event(sim_observer_t *observer, pcp_event_t const *event) {
     mapping->state = SIM_OBSERVED_WAITING;
     break;
   }
-  case PCP_EVENT_FAILED:
-    record_event(observer, event->failed.handle, PCP_EVENT_FAILED)->state =
-        SIM_OBSERVED_FINISHED;
+  case PCP_EVENT_FAILED: {
+    auto const mapping =
+        record_event(observer, event->failed.handle, PCP_EVENT_FAILED);
+    mapping->state = SIM_OBSERVED_FINISHED;
+    mapping->failure = event->failed.result;
     break;
+  }
   case PCP_EVENT_SEND:
   case PCP_EVENT_TIMEOUT:
     TEST_FAIL_MESSAGE("the client's loop handles sends and timeouts itself");

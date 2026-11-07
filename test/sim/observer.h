@@ -19,6 +19,8 @@ typedef struct sim_observed_mapping {
     SIM_OBSERVED_FINISHED, // failed or released, no more events allowed
   } state;
   socket_address_t external;
+  /// From PCP_EVENT_FAILED
+  pcp_result_t failure;
   size_t event_count;
   int events[SIM_OBSERVER_MAX_EVENTS];
 } sim_observed_mapping_t;
